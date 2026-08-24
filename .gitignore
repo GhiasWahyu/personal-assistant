@@ -1,0 +1,15 @@
+# Virtual Environment & Python cache
+venv/
+__pycache__/
+*.pyc
+.env
+
+# Node.js
+whatsapp_bot/node_modules/
+whatsapp_bot/auth_info_baileys/
+whatsapp_bot/package-lock.json
+
+# IDE and temporary files
+.agents/
+.system_generated/
+*.log

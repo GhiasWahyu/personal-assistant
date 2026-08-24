@@ -1,0 +1,18 @@
+{
+  "name": "personal-assistant-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp Baileys Gateway for Personal Assistant",
+  "main": "gateway.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node gateway.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.7.9",
+    "express": "^4.21.2",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

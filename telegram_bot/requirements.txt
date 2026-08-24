@@ -1,0 +1,7 @@
+python-telegram-bot[job-queue]==21.4
+APScheduler==3.10.4
+python-dotenv==1.0.1
+google-genai
+psycopg2-binary
+holidays
+requests

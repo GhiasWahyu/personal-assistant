@@ -73,14 +73,29 @@ system_instruction = (
 # --- DATABASE CONNECTION MANAGER ---
 @contextmanager
 def get_db():
-    """Context manager for database connections to guarantee zero connection leaks and reliable cloud pooling."""
+    """Context manager for database connections to guarantee zero connection leaks and reliable cloud pooling with retry."""
     import psycopg2
     import psycopg2.extras
+    import time
     db_url_clean = DB_URL
     if "sslmode=" not in db_url_clean:
         sep = "&" if "?" in db_url_clean else "?"
         db_url_clean += f"{sep}sslmode=require"
-    conn = psycopg2.connect(db_url_clean, connect_timeout=15)
+    
+    conn = None
+    last_err = None
+    for _ in range(3):
+        try:
+            conn = psycopg2.connect(db_url_clean, connect_timeout=15)
+            break
+        except Exception as e:
+            last_err = e
+            time.sleep(0.5)
+            
+    if not conn:
+        logger.error(f"Database connection failed after retry: {last_err}")
+        raise last_err
+
     try:
         yield conn
     finally:

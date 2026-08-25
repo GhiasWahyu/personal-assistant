@@ -649,16 +649,41 @@ async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = generate_assistant_response(user_text, session_id=chat_id)
     await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
+def hitung_siklus_gajian(now=None):
+    """Menghitung progres siklus gajian bulanan (tanggal 25 ke tanggal 24 bulan berikutnya)."""
+    if not now:
+        now = datetime.date.today()
+    if isinstance(now, datetime.datetime):
+        now = now.date()
+    
+    if now.day >= 25:
+        start_cycle = datetime.date(now.year, now.month, 25)
+        if now.month == 12:
+            end_cycle = datetime.date(now.year + 1, 1, 24)
+        else:
+            end_cycle = datetime.date(now.year, now.month + 1, 24)
+    else:
+        if now.month == 1:
+            start_cycle = datetime.date(now.year - 1, 12, 25)
+        else:
+            start_cycle = datetime.date(now.year, now.month - 1, 25)
+        end_cycle = datetime.date(now.year, now.month, 24)
+        
+    total_hari_siklus = (end_cycle - start_cycle).days + 1
+    hari_ke = (now - start_cycle).days + 1
+    sisa_hari = (end_cycle - now).days
+    
+    return hari_ke, total_hari_siklus, sisa_hari
+
 def analisis_kesehatan_keuangan(budget_rows, now=None) -> str:
-    """Menganalisa pengeluaran dan memberikan penilaian selayaknya penasihat keuangan pribadi."""
+    """Menganalisa pengeluaran dan memberikan penilaian selayaknya penasihat keuangan pribadi berbasis siklus gajian."""
     if not now:
         now = datetime.datetime.now()
     if not budget_rows:
         return "💡 Tips Finansial: Belum ada alokasi budget bulan ini. Tetapkan target dengan /gajian agar keuangan Anda lebih terarah."
 
-    import calendar
-    _, days_in_month = calendar.monthrange(now.year, now.month)
-    day_pct = (now.day / days_in_month) * 100
+    hari_ke, total_hari_siklus, sisa_hari = hitung_siklus_gajian(now)
+    day_pct = (hari_ke / total_hari_siklus) * 100
 
     total_limit = sum(int(r['limit_nominal']) for r in budget_rows)
     total_terpakai = sum(int(r['terpakai']) for r in budget_rows)
@@ -671,16 +696,16 @@ def analisis_kesehatan_keuangan(budget_rows, now=None) -> str:
     # Health check status
     if spending_pct <= (day_pct * 0.7):
         status = "🟢 Sangat Sehat & Bijak"
-        eval_text = f"Pengeluaran baru terpakai {spending_pct:.1f}% di hari ke-{now.day} dari {days_in_month} hari. Pengelolaan uang Anda sangat hemat dan terkendali."
+        eval_text = f"Pengeluaran baru terpakai {spending_pct:.1f}% di hari ke-{hari_ke} dari siklus gajian ({total_hari_siklus} hari, sisa {sisa_hari} hari lagi). Pengelolaan uang Anda sangat hemat."
     elif spending_pct <= day_pct:
         status = "🟢 Sehat & Terkendali"
-        eval_text = f"Pengeluaran terpakai {spending_pct:.1f}%, sangat seimbang dengan progres bulan ({day_pct:.1f}%)."
+        eval_text = f"Pengeluaran terpakai {spending_pct:.1f}%, sangat seimbang dengan hari berjalan (hari ke-{hari_ke} dari siklus gajian, sisa {sisa_hari} hari lagi)."
     elif spending_pct <= (day_pct * 1.25):
         status = "🟡 Perlu Perhatian"
-        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%, sedikit lebih cepat dari sisa hari ({days_in_month - now.day} hari lagi)."
+        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%, sedikit lebih cepat dari sisa waktu siklus gajian ({sisa_hari} hari lagi)."
     else:
         status = "🔴 Peringatan Boros / Defisit"
-        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%. Disarankan menahan belanja non-esensial."
+        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%. Disarankan menahan belanja non-esensial untuk sisa {sisa_hari} hari ke depan."
 
     notes = [f"📈 Status Finansial: {status}", f"📝 {eval_text}"]
 

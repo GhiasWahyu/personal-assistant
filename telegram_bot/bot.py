@@ -47,7 +47,7 @@ system_instruction = (
     "\n\nPEDOMAN PENGELOLAAN DOMPET & SUMBER DANA (MULTI-WALLET / MULTI-ACCOUNT):\n"
     "1. Pengguna dapat menyimpan uang di beberapa sumber dana berbeda (misal: Cash/Tunai, Bank A, Bank BCA, Bank Mandiri, Bank BRI, DANA, GoPay, OVO, ShopeePay, dll).\n"
     "2. Bila pengguna menginput gajian atau pemasukan terpisah di beberapa dompet/rekening (contoh: 'gajian cash 50.000 lalu di bank a ada 10000'):\n"
-    "   - Hitung total keseluruhan nominal (contoh: 50.000 + 10.000 = 60.000) dan panggil `atur_anggaran_gajian(total_nominal=60000)` agar formula budget 50/30/20 terisi.\n"
+    "   - Hitung total keseluruhan nominal (contoh: 50.000 + 10.000 = 60.000) dan panggil `atur_anggaran_gajian(total_nominal=60000)` agar formula budget 50/30/20 terisi dengan angka bulat ke ribuan rupiah terdekat (clean round number) tanpa pecahan ratusan rupiah.\n"
     "   - Panggil `catat_pemasukan` untuk masing-masing dompet (contoh: nominal=50000, dompet='Cash', keterangan='Gaji Cash' dan nominal=10000, dompet='Bank A', keterangan='Gaji Bank A').\n"
     "3. Bila pengguna mencatat pemasukan biasa (misal: 'dapat transfer 100.000 di DANA' atau 'dapat uang saku 50.000 cash'), panggil `catat_pemasukan` dengan nama dompet yang sesuai.\n"
     "4. Bila pengguna mencatat pengeluaran dan menyebutkan sumber dana (misal: 'beli makan 25.000 pakai Cash' atau 'bayar listrik 50.000 lewat Bank A'), masukkan nama dompet ke parameter `dompet` di `catat_pengeluaran`.\n"
@@ -120,14 +120,32 @@ def get_kategori_id(conn, nama: str, tipe: str, jenis_budget: str) -> str:
             conn.commit()
             return cat_id
 
-# --- DATABASE TOOLS FOR GEMINI FUNCTION CALLING ---
-def atur_anggaran_gajian(total_nominal: int) -> str:
-    """Mengatur alokasi anggaran bulanan dengan formula 50% Kebutuhan Pokok, 30% Keinginan & Hiburan, 20% Tabungan."""
-    try:
-        total_nominal = int(total_nominal)
+def hitung_pembagian_anggaran_bulat(total_nominal: int):
+    """
+    Membagi anggaran 50/30/20 dengan pembulatan rapi ke ribuan rupiah terdekat (clean round number)
+    agar praktis dan tidak menghasilkan pecahan ratusan/puluhan rupiah.
+    """
+    total_nominal = int(total_nominal)
+    if total_nominal >= 10000:
+        kebutuhan = round((total_nominal * 0.5) / 1000) * 1000
+        keinginan = round((total_nominal * 0.3) / 1000) * 1000
+        tabungan = round((total_nominal * 0.2) / 1000) * 1000
+    elif total_nominal >= 1000:
+        kebutuhan = round((total_nominal * 0.5) / 100) * 100
+        keinginan = round((total_nominal * 0.3) / 100) * 100
+        tabungan = round((total_nominal * 0.2) / 100) * 100
+    else:
         kebutuhan = int(total_nominal * 0.5)
         keinginan = int(total_nominal * 0.3)
         tabungan = int(total_nominal * 0.2)
+    return kebutuhan, keinginan, tabungan
+
+# --- DATABASE TOOLS FOR GEMINI FUNCTION CALLING ---
+def atur_anggaran_gajian(total_nominal: int) -> str:
+    """Mengatur alokasi anggaran bulanan dengan formula 50% Kebutuhan Pokok, 30% Keinginan & Hiburan, 20% Tabungan (dibulatkan ke ribuan rupiah terdekat)."""
+    try:
+        total_nominal = int(total_nominal)
+        kebutuhan, keinginan, tabungan = hitung_pembagian_anggaran_bulat(total_nominal)
         now = datetime.datetime.now()
         bulan = now.month
         tahun = now.year
@@ -450,10 +468,10 @@ def generate_assistant_response(user_text: str, session_id: str = "default") -> 
         )
 
         MODELS_TO_TRY = [
-            os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+            os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
             "gemini-3.5-flash-lite",
-            "gemini-3.6-flash",
             "gemini-3.7-flash",
+            "gemini-3.5-flash",
             "gemini-flash-latest"
         ]
 
@@ -617,12 +635,10 @@ async def gajian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         nominal = int(context.args[0])
         atur_anggaran_gajian(nominal)
-        kebutuhan = int(nominal * 0.5)
-        keinginan = int(nominal * 0.3)
-        tabungan = int(nominal * 0.2)
+        kebutuhan, keinginan, tabungan = hitung_pembagian_anggaran_bulat(nominal)
 
         response = (
-            f"Alokasi anggaran gaji Rp {nominal:,} telah berhasil diatur:\n\n"
+            f"Alokasi anggaran gaji Rp {nominal:,} telah berhasil diatur (dibulatkan ke ribuan):\n\n"
             f"📦 Kebutuhan Pokok (50%): Rp {kebutuhan:,}\n"
             f"🎮 Hiburan & Jajan (30%): Rp {keinginan:,}\n"
             f"💰 Tabungan (20%): Rp {tabungan:,}"
@@ -840,25 +856,32 @@ def main():
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
 
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("gajian", gajian))
-    app.add_handler(CommandHandler("saldo", info_budget_quick))
-    app.add_handler(CommandHandler("catat", catat))
-    app.add_handler(CommandHandler("subsidi", subsidi))
-    app.add_handler(CommandHandler("rekap", rekap))
-    app.add_handler(CommandHandler("agenda", agenda))
-
-    # Handler for normal text messages (chatting with AI)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat))
-
-    # Run scheduler every 30 seconds for higher timing precision
-    job_queue = app.job_queue
-    job_queue.run_repeating(check_reminders, interval=30, first=5)
-
     logger.info("Bot is running with full QHSE standards and WhatsApp Webhook active...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    while True:
+        try:
+            app = Application.builder().token(TOKEN).build()
+
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(CommandHandler("gajian", gajian))
+            app.add_handler(CommandHandler("saldo", info_budget_quick))
+            app.add_handler(CommandHandler("catat", catat))
+            app.add_handler(CommandHandler("subsidi", subsidi))
+            app.add_handler(CommandHandler("rekap", rekap))
+            app.add_handler(CommandHandler("agenda", agenda))
+
+            # Handler for normal text messages (chatting with AI)
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat))
+
+            # Run scheduler every 30 seconds for higher timing precision
+            job_queue = app.job_queue
+            job_queue.run_repeating(check_reminders, interval=30, first=5)
+
+            app.run_polling(allowed_updates=Update.ALL_TYPES)
+        except Exception as e:
+            logger.error(f"Polling loop encountered an error: {e}. Reconnecting in 5 seconds...")
+            import time
+            time.sleep(5)
 
 if __name__ == '__main__':
     main()

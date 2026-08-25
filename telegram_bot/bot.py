@@ -53,6 +53,10 @@ system_instruction = (
     "4. Bila pengguna mencatat pengeluaran dan menyebutkan sumber dana (misal: 'beli makan 25.000 pakai Cash' atau 'bayar listrik 50.000 lewat Bank A'), masukkan nama dompet ke parameter `dompet` di `catat_pengeluaran`.\n"
     "5. Bila pengguna tidak menyebutkan nama dompet saat pengeluaran, gunakan default 'Cash'.\n"
     "6. Bila pengguna memindahkan saldo (misal: 'tarik tunai 50.000 dari Bank A' atau 'topup DANA 20.000 dari Bank BCA'), panggil tool `transfer_dana`.\n"
+    "7. BILA ADA KEKELIRUAN DATA / SALAH CATAT:\n"
+    "   - Bila pengguna mengoreksi saldo dompet (contoh: 'saldo Cash saya sebenarnya 800.000' atau 'koreksi saldo AlloBank jadi 50.000'), panggil tool `koreksi_saldo_dompet`.\n"
+    "   - Bila pengguna ingin membatalkan/menghapus transaksi yang salah (contoh: 'batalkan transaksi tadi' atau 'hapus pengeluaran makan 43500'), panggil tool `hapus_transaksi_terakhir`.\n"
+    "   - Bila pengguna ingin mengubah gaji/anggaran, panggil `atur_anggaran_gajian`.\n"
     "\n\nPEDOMAN ANTI-HALUSINASI & KEBENARAN DATA (ZERO HALLUCINATION):\n"
     "1. Kamu DIBEKALI data nyata terkini dari database di bagian 'Konteks Data Nyata Database', termasuk Saldo per Dompet dan Sisa Budget.\n"
     "2. JANGAN PERNAH MENGARANG angka, pengeluaran, sisa saldo, atau jadwal yang tidak ada di database.\n"
@@ -224,6 +228,73 @@ def transfer_dana(dari_dompet: str, ke_dompet: str, nominal: int, keterangan: st
     except Exception as e:
         logger.error(f"Error transfer_dana: {e}")
         return f"Gagal transfer dana: {e}"
+
+def koreksi_saldo_dompet(nama_dompet: str, saldo_sebenarnya: int, keterangan: str = "Penyesuaian Saldo") -> str:
+    """Mengoreksi / menyesuaikan total saldo pada dompet atau rekening tertentu jika ada kekeliruan data (misal pengguna berkata 'saldo Cash saya sebenarnya 800.000')."""
+    try:
+        saldo_sebenarnya = int(saldo_sebenarnya)
+        dompet_clean = nama_dompet.strip() if nama_dompet else "Cash"
+        now = datetime.datetime.now()
+        with get_db() as conn:
+            import psycopg2.extras
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                # Ambil saldo saat ini
+                c.execute("""
+                    SELECT COALESCE(SUM(CASE WHEN tipe = 'pemasukan' THEN jumlah ELSE -jumlah END), 0) as saldo_sekarang
+                    FROM transaksi
+                    WHERE COALESCE(NULLIF(TRIM(dompet), ''), 'Cash') = %s
+                """, (dompet_clean,))
+                row = c.fetchone()
+                saldo_sekarang = int(row['saldo_sekarang']) if row else 0
+                
+                selisih = saldo_sebenarnya - saldo_sekarang
+                if selisih == 0:
+                    return f"Saldo {dompet_clean} saat ini sudah sesuai yaitu Rp {saldo_sebenarnya:,}."
+                
+                tipe_tx = 'pemasukan' if selisih > 0 else 'pengeluaran'
+                kat_nama = "Penyesuaian Saldo Masuk" if selisih > 0 else "Penyesuaian Saldo Keluar"
+                kat_id = get_kategori_id(conn, kat_nama, tipe_tx, "koreksi")
+                
+                c.execute("""
+                    INSERT INTO transaksi (id, kategori_id, jumlah, tipe, tanggal, deskripsi, dompet, created_at) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                """, (str(uuid.uuid4()), kat_id, abs(selisih), tipe_tx, now.strftime('%Y-%m-%d'), f"Koreksi Saldo: {keterangan}", dompet_clean))
+            conn.commit()
+        return f"Berhasil menyesuaikan saldo {dompet_clean} menjadi Rp {saldo_sebenarnya:,} (Selisih penyesuaian: Rp {selisih:+,})."
+    except Exception as e:
+        logger.error(f"Error koreksi_saldo_dompet: {e}")
+        return f"Gagal menyesuaikan saldo: {e}"
+
+def hapus_transaksi_terakhir(keterangan: str = "") -> str:
+    """Menghapus / membatalkan transaksi pengeluaran atau pemasukan terakhir jika pengguna salah mencatat."""
+    try:
+        with get_db() as conn:
+            import psycopg2.extras
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                if keterangan:
+                    c.execute("""
+                        SELECT id, deskripsi, jumlah, tipe, dompet 
+                        FROM transaksi 
+                        WHERE deskripsi ILIKE %s 
+                        ORDER BY created_at DESC LIMIT 1
+                    """, (f"%{keterangan}%",))
+                else:
+                    c.execute("""
+                        SELECT id, deskripsi, jumlah, tipe, dompet 
+                        FROM transaksi 
+                        ORDER BY created_at DESC LIMIT 1
+                    """)
+                row = c.fetchone()
+                if not row:
+                    return "Tidak ditemukan transaksi yang dapat dibatalkan/dihapus."
+                
+                tx_id = row['id']
+                c.execute("DELETE FROM transaksi WHERE id = %s", (tx_id,))
+            conn.commit()
+        return f"Berhasil membatalkan transaksi: {row['deskripsi']} (Rp {int(row['jumlah']):,} - {row['dompet']})."
+    except Exception as e:
+        logger.error(f"Error hapus_transaksi_terakhir: {e}")
+        return f"Gagal membatalkan transaksi: {e}"
 
 def catat_pengeluaran(tipe: str, nominal: int, keterangan: str, dompet: str = "Cash") -> str:
     """Mencatat pengeluaran uang. tipe harus 'kebutuhan' atau 'keinginan'. nominal dalam rupiah angka bulat. dompet adalah sumber dana (misal: 'Cash', 'Bank A', 'DANA', 'GoPay', dll)."""
@@ -490,7 +561,7 @@ def generate_assistant_response(user_text: str, session_id: str = "default") -> 
                     model=model_name,
                     contents=prompt_with_context,
                     config=types.GenerateContentConfig(
-                        tools=[atur_anggaran_gajian, catat_pemasukan, catat_pengeluaran, transfer_dana, catat_subsidi, tambah_jadwal_agenda, tambah_jadwal_rutin_weekdays],
+                        tools=[atur_anggaran_gajian, catat_pemasukan, catat_pengeluaran, transfer_dana, catat_subsidi, tambah_jadwal_agenda, tambah_jadwal_rutin_weekdays, koreksi_saldo_dompet, hapus_transaksi_terakhir],
                         system_instruction=system_instruction,
                         temperature=0.7,
                     )

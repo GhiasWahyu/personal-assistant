@@ -823,26 +823,47 @@ def analisis_kesehatan_keuangan(budget_rows, now=None) -> str:
     keinginan_row = next((r for r in budget_rows if 'keinginan' in r['nama'].lower() or 'hiburan' in r['nama'].lower()), None)
     tab_row = next((r for r in budget_rows if 'tabungan' in r['nama'].lower()), None)
 
-    # Health check status
-    if spending_pct <= (day_pct * 0.7):
-        status = "🟢 Sangat Sehat & Bijak"
-        eval_text = f"Pengeluaran baru terpakai {spending_pct:.1f}% di hari ke-{hari_ke} dari siklus gajian ({total_hari_siklus} hari, sisa {sisa_hari} hari lagi). Pengelolaan uang Anda sangat hemat."
-    elif spending_pct <= day_pct:
-        status = "🟢 Sehat & Terkendali"
-        eval_text = f"Pengeluaran terpakai {spending_pct:.1f}%, sangat seimbang dengan hari berjalan (hari ke-{hari_ke} dari siklus gajian, sisa {sisa_hari} hari lagi)."
-    elif spending_pct <= (day_pct * 1.25):
-        status = "🟡 Perlu Perhatian"
-        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%, sedikit lebih cepat dari sisa waktu siklus gajian ({sisa_hari} hari lagi)."
+    # Check for category deficit first
+    is_deficit = any((int(r['limit_nominal']) - int(r['terpakai'])) < 0 for r in budget_rows)
+    
+    if is_deficit:
+        status = "🔴 Defisit / Overbudget"
+        eval_text = "Ada pos anggaran yang telah melampaui limit. Mohon rem pengeluaran non-esensial dan evaluasi pos terkait."
+    elif hari_ke <= 7:
+        # Penilaian khusus minggu pertama gajian (belanja bulanan/stok bahan adalah wajar)
+        if spending_pct <= 15.0:
+            status = "🟢 Sangat Sehat & Hemat"
+            eval_text = f"Pengeluaran baru terpakai {spending_pct:.1f}% di awal siklus (hari ke-{hari_ke}, sisa {sisa_hari} hari lagi). Pengelolaan anggaran Anda sangat disiplin."
+        elif spending_pct <= 30.0:
+            status = "🟢 Terkendali / Wajar Awal Gajian"
+            eval_text = f"Pengeluaran terpakai {spending_pct:.1f}% di minggu awal gajian (wajar untuk kebutuhan pokok). Sisa {100.0 - spending_pct:.1f}% dana siap untuk {sisa_hari} hari ke depan."
+        else:
+            status = "🟡 Perlu Perhatian"
+            eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}% di awal siklus (hari ke-{hari_ke}). Disarankan mulai menahan belanja sekunder."
     else:
-        status = "🔴 Peringatan Boros / Defisit"
-        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%. Disarankan menahan belanja non-esensial untuk sisa {sisa_hari} hari ke depan."
+        # Penilaian hari ke-8 sampai akhir siklus gajian
+        if spending_pct <= (day_pct * 0.85):
+            status = "🟢 Sangat Sehat & Bijak"
+            eval_text = f"Pengeluaran terpakai {spending_pct:.1f}% di hari ke-{hari_ke} (jauh di bawah batas aman {day_pct:.1f}%). Keuangan Anda sangat sehat."
+        elif spending_pct <= (day_pct * 1.15):
+            status = "🟢 Sehat & Terkendali"
+            eval_text = f"Pengeluaran terpakai {spending_pct:.1f}%, berjalan seimbang dengan hari ke-{hari_ke} (sisa {sisa_hari} hari lagi)."
+        elif spending_pct <= (day_pct * 1.35):
+            status = "🟡 Perlu Waspada"
+            eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%, sedikit lebih cepat dari sisa waktu ({sisa_hari} hari lagi)."
+        else:
+            status = "🔴 Boros / Waspada Defisit"
+            eval_text = f"Laju pengeluaran ({spending_pct:.1f}%) sudah melampaui porsi waktu hari ke-{hari_ke}. Prioritaskan hanya kebutuhan wajib."
 
     notes = [f"📈 Status Finansial: {status}", f"📝 {eval_text}"]
 
-    if keinginan_row and int(keinginan_row['terpakai']) == 0:
-        notes.append("👏 Disiplin sangat baik: Belanja hiburan/keinginan masih 0.")
-    elif keinginan_row and keb_row and int(keinginan_row['terpakai']) > int(keb_row['terpakai']):
-        notes.append("⚠️ Catatan: Pos hiburan lebih tinggi daripada kebutuhan pokok. Rem belanja non-esensial.")
+    if keinginan_row:
+        terpakai_k = int(keinginan_row['terpakai'])
+        limit_k = int(keinginan_row['limit_nominal'])
+        if terpakai_k == 0:
+            notes.append("👏 Disiplin sangat baik: Belanja hiburan/keinginan masih Rp 0.")
+        elif limit_k > 0 and (terpakai_k / limit_k) > 0.8:
+            notes.append("⚠️ Perhatian: Pos Keinginan & Hiburan sudah hampir habis.")
 
     if tab_row and int(tab_row['limit_nominal']) > 0:
         notes.append(f"💰 Pos Tabungan Rp {int(tab_row['limit_nominal']):,} aman terlindungi.")

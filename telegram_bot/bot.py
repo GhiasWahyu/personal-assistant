@@ -22,9 +22,24 @@ load_dotenv()
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger("QHSE_PersonalAssistantBot")
 
-# Constants & Configuration (with fallback to default)
+def sanitize_db_url(raw_url: str) -> str:
+    """Auto-encode @ in database password if improperly formatted in environment variables."""
+    if not raw_url:
+        return raw_url
+    if raw_url.count('@') > 1 and '://' in raw_url:
+        prefix, rest = raw_url.split('://', 1)
+        last_at = rest.rfind('@')
+        creds = rest[:last_at]
+        host_db = rest[last_at+1:]
+        if ':' in creds:
+            user, pwd = creds.split(':', 1)
+            import urllib.parse
+            pwd_encoded = urllib.parse.quote_plus(urllib.parse.unquote_plus(pwd))
+            return f"{prefix}://{user}:{pwd_encoded}@{host_db}"
+    return raw_url
+
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "REDACTED_TELEGRAM_TOKEN")
-DB_URL = os.getenv("DATABASE_URL", "postgresql://REDACTED_DB_USER:REDACTED_DB_PASSWORD@REDACTED_DB_HOST/postgres")
+DB_URL = sanitize_db_url(os.getenv("DATABASE_URL", "postgresql://REDACTED_DB_USER:REDACTED_DB_PASSWORD@REDACTED_DB_HOST/postgres"))
 CONFIG_FILE = "config.json"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "REDACTED_GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")

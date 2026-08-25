@@ -82,7 +82,11 @@ system_instruction = (
     "1. Gunakan bahasa Indonesia yang komunikatif, ringkas, rapi, dan membantu selayaknya asisten pribadi.\n"
     "2. DILARANG menggunakan tanda bintang ganda (**kata**) atau (*kata*). Buat tampilan pesan bersih, rapi, dan mudah dibaca di layar HP.\n"
     "3. Gunakan icon yang informatif (📊, 💳, 💰, 📅, 💡, ✅, ⚠️, 📌) secara proporsional.\n"
-    "4. Jika saldo menipis atau budget minus, berikan peringatan dan saran finansial secara objektif dan solutif."
+    "4. Jika saldo menipis atau budget minus, berikan peringatan dan saran finansial secara objektif dan solutif.\n"
+    "\n\nPERAN PENASIHAT KEUANGAN (FINANCIAL ADVISOR):\n"
+    "1. Bertindaklah selayaknya penasihat keuangan pribadi yang cerdas, objektif, dan suportif.\n"
+    "2. Ketika pengguna bertanya tentang kondisi keuangan, tips, atau setelah mencatat transaksi, berikan penilaian apakah pola pengeluarannya sudah bijak, hemat, atau perlu diwaspadai.\n"
+    "3. Berikan apresiasi jika pengguna berhemat (misal: belanja keinginan rendah, tabungan utuh) dan berikan saran penyesuaian jika ada pos yang mendekati batas limit."
 )
 
 # --- DATABASE CONNECTION MANAGER ---
@@ -645,8 +649,53 @@ async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = generate_assistant_response(user_text, session_id=chat_id)
     await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
+def analisis_kesehatan_keuangan(budget_rows, now=None) -> str:
+    """Menganalisa pengeluaran dan memberikan penilaian selayaknya penasihat keuangan pribadi."""
+    if not now:
+        now = datetime.datetime.now()
+    if not budget_rows:
+        return "💡 Tips Finansial: Belum ada alokasi budget bulan ini. Tetapkan target dengan /gajian agar keuangan Anda lebih terarah."
+
+    import calendar
+    _, days_in_month = calendar.monthrange(now.year, now.month)
+    day_pct = (now.day / days_in_month) * 100
+
+    total_limit = sum(int(r['limit_nominal']) for r in budget_rows)
+    total_terpakai = sum(int(r['terpakai']) for r in budget_rows)
+    spending_pct = (total_terpakai / total_limit * 100) if total_limit > 0 else 0
+
+    keb_row = next((r for r in budget_rows if 'kebutuhan' in r['nama'].lower()), None)
+    keinginan_row = next((r for r in budget_rows if 'keinginan' in r['nama'].lower() or 'hiburan' in r['nama'].lower()), None)
+    tab_row = next((r for r in budget_rows if 'tabungan' in r['nama'].lower()), None)
+
+    # Health check status
+    if spending_pct <= (day_pct * 0.7):
+        status = "🟢 Sangat Sehat & Bijak"
+        eval_text = f"Pengeluaran baru terpakai {spending_pct:.1f}% di hari ke-{now.day} dari {days_in_month} hari. Pengelolaan uang Anda sangat hemat dan terkendali."
+    elif spending_pct <= day_pct:
+        status = "🟢 Sehat & Terkendali"
+        eval_text = f"Pengeluaran terpakai {spending_pct:.1f}%, sangat seimbang dengan progres bulan ({day_pct:.1f}%)."
+    elif spending_pct <= (day_pct * 1.25):
+        status = "🟡 Perlu Perhatian"
+        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%, sedikit lebih cepat dari sisa hari ({days_in_month - now.day} hari lagi)."
+    else:
+        status = "🔴 Peringatan Boros / Defisit"
+        eval_text = f"Pengeluaran sudah mencapai {spending_pct:.1f}%. Disarankan menahan belanja non-esensial."
+
+    notes = [f"📈 Status Finansial: {status}", f"📝 {eval_text}"]
+
+    if keinginan_row and int(keinginan_row['terpakai']) == 0:
+        notes.append("👏 Disiplin sangat baik: Belanja hiburan/keinginan masih 0.")
+    elif keinginan_row and keb_row and int(keinginan_row['terpakai']) > int(keb_row['terpakai']):
+        notes.append("⚠️ Catatan: Pos hiburan lebih tinggi daripada kebutuhan pokok. Rem belanja non-esensial.")
+
+    if tab_row and int(tab_row['limit_nominal']) > 0:
+        notes.append(f"💰 Pos Tabungan Rp {int(tab_row['limit_nominal']):,} aman terlindungi.")
+
+    return "\n".join(notes)
+
 async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Respon cepat rincian saldo dompet/rekening dan sisa budget."""
+    """Respon cepat rincian saldo dompet/rekening, sisa budget, dan evaluasi penasihat keuangan."""
     import psycopg2.extras
     now = datetime.datetime.now()
     try:
@@ -678,27 +727,25 @@ async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 """, (now.month, now.year))
                 budget_rows = c.fetchall()
 
-        res = "💳 *Rincian Saldo Dompet / Rekening:*\n"
+        res = "💳 Rincian Saldo Dompet / Rekening:\n"
         total_saldo = 0
         if dompet_rows:
             for d in dompet_rows:
                 s = int(d['saldo'])
                 total_saldo += s
                 res += f"🔹 {d['nama_dompet']}: Rp {s:,}\n"
-            res += f"💰 *Total Saldo:* Rp {total_saldo:,}\n\n"
+            res += f"💰 Total Saldo: Rp {total_saldo:,}\n\n"
         else:
             res += "Belum ada catatan saldo dompet.\n\n"
 
-        res += "📊 *Sisa Alokasi Budget Bulan Ini:*\n"
-        total_sisa = 0
+        res += "📊 Alokasi & Sisa Budget Bulan Ini:\n"
         if budget_rows:
             for r in budget_rows:
                 limit = int(r['limit_nominal'])
                 terpakai = int(r['terpakai'])
                 sisa = limit - terpakai
-                total_sisa += sisa
                 res += f"📌 {r['nama']}: Sisa Rp {sisa:,} (Limit: Rp {limit:,})\n"
-            res += f"💵 *Total Sisa Budget:* Rp {total_sisa:,}\n"
+            res += "\n" + analisis_kesehatan_keuangan(budget_rows, now)
         else:
             res += "Belum ada alokasi budget bulan ini. (Ketik: /gajian [nominal] atau chat langsung).\n"
 
@@ -843,15 +890,13 @@ async def rekap(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         response = f"📊 Rekap Keuangan ({now.strftime('%B %Y')}):\n\n"
-        total_sisa = 0
         for r in rows:
             limit = int(r['limit_nominal'])
             terpakai = int(r['terpakai'])
             sisa = limit - terpakai
-            total_sisa += sisa
             response += f"🔹 Pos {r['nama']}:\n   Jatah: Rp {limit:,} | Terpakai: Rp {terpakai:,}\n   Sisa: Rp {sisa:,}\n\n"
             
-        response += f"💰 Total Sisa Anggaran: Rp {total_sisa:,}"
+        response += "\n" + analisis_kesehatan_keuangan(rows, now)
         await update.message.reply_text(response.strip(), reply_markup=get_main_keyboard())
     except Exception as e:
         logger.error(f"Error rekap: {e}")

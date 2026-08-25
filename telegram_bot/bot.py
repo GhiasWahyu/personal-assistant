@@ -73,6 +73,18 @@ system_instruction = (
     "   - Bila pengguna mengoreksi saldo dompet (contoh: 'saldo Cash saya sebenarnya 800.000' atau 'koreksi saldo AlloBank jadi 50.000'), panggil tool `koreksi_saldo_dompet`.\n"
     "   - Bila pengguna ingin membatalkan/menghapus transaksi yang salah (contoh: 'batalkan transaksi tadi' atau 'hapus pengeluaran makan 43500'), panggil tool `hapus_transaksi_terakhir`.\n"
     "   - Bila pengguna ingin mengubah gaji/anggaran, panggil `atur_anggaran_gajian`.\n"
+    "8. KLUSTERISASI KATEGORI PENGELUARAN OTOMATIS (ALA MONEY MANAGER):\n"
+    "   - Setiap kali mencatat pengeluaran lewat `catat_pengeluaran`, KAMU WAJIB MENGISI parameter `kategori_spesifik` secara otomatis sesuai konteks barang/jasa:\n"
+    "     * 'Makanan & Kuliner' (makan siang, lauk, warteg, beras, sarapan, sembako)\n"
+    "     * 'Camilan & Minuman' (kopi, boba, jajan, snack, es, cafe)\n"
+    "     * 'Transportasi' (bensin, pertalite, ojol, gojek, grab, tol, parkir, servis motor)\n"
+    "     * 'Tagihan & Rumah Tangga' (listrik, gas, air, pulsa, kuota, wifi, kos, sewa)\n"
+    "     * 'Laundry & Pakaian' (laundry, cuci baju, setrika, deterjen)\n"
+    "     * 'Belanja & Pribadi' (skincare, sabun, pakaian, perlengkapan diri)\n"
+    "     * 'Hiburan & Rekreasi' (nonton, bioskop, game, netflix, liburan, jalan-jalan)\n"
+    "     * 'Kesehatan & Medis' (obat, apotek, dokter, vitamin)\n"
+    "     * 'Sosial & Donasi' (infaq, sedekah, kado, kondangan, keluarga)\n"
+    "   - Dan tetap tentukan `tipe` ('kebutuhan' atau 'keinginan') agar alokasi budget 50/30/20 tetap akurat!\n"
     "\n\nPEDOMAN ANTI-HALUSINASI & KEBENARAN DATA (ZERO HALLUCINATION):\n"
     "1. Kamu DIBEKALI data nyata terkini dari database di bagian 'Konteks Data Nyata Database', termasuk Saldo per Dompet dan Sisa Budget.\n"
     "2. JANGAN PERNAH MENGARANG angka, pengeluaran, sisa saldo, atau jadwal yang tidak ada di database.\n"
@@ -332,15 +344,39 @@ def hapus_transaksi_terakhir(keterangan: str = "") -> str:
         logger.error(f"Error hapus_transaksi_terakhir: {e}")
         return f"Gagal membatalkan transaksi: {e}"
 
-def catat_pengeluaran(tipe: str, nominal: int, keterangan: str, dompet: str = "Cash") -> str:
-    """Mencatat pengeluaran uang. tipe harus 'kebutuhan' atau 'keinginan'. nominal dalam rupiah angka bulat. dompet adalah sumber dana (misal: 'Cash', 'Bank A', 'DANA', 'GoPay', dll)."""
+def catat_pengeluaran(tipe: str, nominal: int, keterangan: str, dompet: str = "Cash", kategori_spesifik: str = "") -> str:
+    """Mencatat pengeluaran uang dengan klusterisasi kategori mendalam ala Money Manager (contoh kategori_spesifik: 'Makanan & Kuliner', 'Camilan & Minuman', 'Transportasi', 'Tagihan & Rumah Tangga', 'Laundry & Pakaian', 'Belanja & Pribadi', 'Hiburan & Rekreasi', 'Kesehatan & Medis', 'Sosial & Donasi'). tipe harus 'kebutuhan' atau 'keinginan'."""
     try:
         nominal = int(nominal)
         tipe_clean = "kebutuhan" if "kebutuhan" in tipe.lower() or "pokok" in tipe.lower() or "makan" in tipe.lower() else "keinginan"
         dompet_clean = dompet.strip() if dompet else "Cash"
         now = datetime.datetime.now()
-        kat_nama = "Kebutuhan Pokok" if tipe_clean == "kebutuhan" else "Keinginan & Hiburan"
         
+        # Klusterisasi otomatis cerdas jika tidak diberikan
+        kat_nama = kategori_spesifik.strip() if kategori_spesifik else ""
+        if not kat_nama:
+            ket_lower = keterangan.lower()
+            if any(w in ket_lower for w in ["makan", "lauk", "nasi", "warteg", "sarapan", "siang", "malam", "sembako", "beras", "sayur", "ayam"]):
+                kat_nama = "Makanan & Kuliner"
+            elif any(w in ket_lower for w in ["kopi", "cafe", "boba", "es", "camilan", "snack", "jajan", "bakso", "teler", "jus"]):
+                kat_nama = "Camilan & Minuman"
+            elif any(w in ket_lower for w in ["bensin", "pertalite", "pertamax", "ojol", "gojek", "grab", "parkir", "tol", "servis", "angkot", "kereta"]):
+                kat_nama = "Transportasi"
+            elif any(w in ket_lower for w in ["gas", "listrik", "pln", "air", "pdam", "wifi", "pulsa", "kuota", "kos", "sewa", "iuran"]):
+                kat_nama = "Tagihan & Rumah Tangga"
+            elif any(w in ket_lower for w in ["laundry", "cuci", "setrika", "deterjen"]):
+                kat_nama = "Laundry & Pakaian"
+            elif any(w in ket_lower for w in ["skincare", "sabun", "shampo", "baju", "celana", "sepatu", "tas", "parfum"]):
+                kat_nama = "Belanja & Pribadi"
+            elif any(w in ket_lower for w in ["nonton", "bioskop", "game", "steam", "netflix", "spotify", "liburan", "jalan", "karaoke"]):
+                kat_nama = "Hiburan & Rekreasi"
+            elif any(w in ket_lower for w in ["obat", "dokter", "apotek", "vitamin", "sakit", "klinik", "panadol"]):
+                kat_nama = "Kesehatan & Medis"
+            elif any(w in ket_lower for w in ["infaq", "sedekah", "kado", "kondangan", "keluarga", "ortu", "donasi"]):
+                kat_nama = "Sosial & Donasi"
+            else:
+                kat_nama = "Kebutuhan Pokok" if tipe_clean == "kebutuhan" else "Keinginan & Hiburan"
+
         with get_db() as conn:
             kat_id = get_kategori_id(conn, kat_nama, "pengeluaran", tipe_clean)
             with conn.cursor() as c:
@@ -349,7 +385,7 @@ def catat_pengeluaran(tipe: str, nominal: int, keterangan: str, dompet: str = "C
                     VALUES (%s, %s, %s, 'pengeluaran', %s, %s, %s, NOW())
                 """, (str(uuid.uuid4()), kat_id, nominal, now.strftime('%Y-%m-%d'), keterangan, dompet_clean))
             conn.commit()
-        return f"Berhasil mencatat pengeluaran {keterangan} sebesar Rp {nominal:,} dari {dompet_clean} pada pos {kat_nama}."
+        return f"Berhasil mencatat pengeluaran {keterangan} sebesar Rp {nominal:,} ({dompet_clean}) pada kluster '{kat_nama}' [{tipe_clean.capitalize()}]."
     except Exception as e:
         logger.error(f"Error catat_pengeluaran: {e}")
         return f"Gagal mencatat pengeluaran: {e}"
@@ -668,8 +704,8 @@ def get_progress_bar(pct: float, length: int = 8) -> str:
         bar = "🟩" * filled + "⬜" * (length - filled)
     return f"[{bar}] {pct:.1f}%"
 
-def generate_expense_chart_image(budget_rows, now=None):
-    """Menghasilkan grafik visual FinTech Dashboard Card: Donut breakdown pengeluaran nyata + Progress bar per pos anggaran."""
+def generate_expense_chart_image(budget_rows, cluster_rows=None, now=None):
+    """Menghasilkan grafik visual FinTech Dashboard Card: Donut breakdown kluster pengeluaran nyata + Progress bar per pos anggaran."""
     try:
         import matplotlib
         matplotlib.use('Agg')
@@ -693,59 +729,47 @@ def generate_expense_chart_image(budget_rows, now=None):
         total_spent = keb_terpakai + keinginan_terpakai + tab_terpakai
         total_budget = keb_limit + keinginan_limit + tab_limit
 
-        # Layout: Modern FinTech Card
-        fig = plt.figure(figsize=(9, 5.2), facecolor='#0f172a')
-        gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.3], height_ratios=[0.25, 1], hspace=0.25, wspace=0.3)
+        # Layout: High-res FinTech Card (Wide & Spacious)
+        fig = plt.figure(figsize=(10, 6.0), facecolor='#0f172a', dpi=180)
+        gs = fig.add_gridspec(2, 2, width_ratios=[1.1, 1.4], height_ratios=[0.22, 1], hspace=0.25, wspace=0.25)
 
         # 1. Header Title
         ax_head = fig.add_subplot(gs[0, :])
         ax_head.set_facecolor('#0f172a')
         ax_head.axis('off')
-        ax_head.text(0.0, 0.7, 'Dashboard Anggaran & Pengeluaran', color='#f8fafc', fontsize=15, weight='bold')
-        ax_head.text(0.0, 0.15, f"Siklus Gajian (25 ke 24) • Total Budget: Rp {total_budget:,}", color='#94a3b8', fontsize=10.5)
+        ax_head.text(0.0, 0.7, 'Analisis Pengeluaran & Anggaran', color='#f8fafc', fontsize=15, weight='bold')
+        ax_head.text(0.0, 0.15, f"Siklus Gajian (25 ke 24) • Total Budget: Rp {total_budget:,}", color='#94a3b8', fontsize=10)
 
-        # 2. Left: Donut Chart of Actual Expense Breakdown (Kebutuhan vs Keinginan)
+        # 2. Left: Donut Chart of Deep Clusters (Makanan, Transportasi, Laundry, dll)
         ax_pie = fig.add_subplot(gs[1, 0])
         ax_pie.set_facecolor('#0f172a')
 
-        if total_spent > 0:
-            sizes = []
-            pie_colors = []
-            pie_labels = []
+        cluster_palette = ['#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6', '#06b6d4', '#f97316', '#14b8a6']
 
-            if keb_terpakai > 0:
-                sizes.append(keb_terpakai)
-                pie_colors.append('#10b981') # Emerald
-                pie_labels.append(f'Kebutuhan ({keb_terpakai/total_spent*100:.0f}%)')
-            if keinginan_terpakai > 0:
-                sizes.append(keinginan_terpakai)
-                pie_colors.append('#f59e0b') # Amber
-                pie_labels.append(f'Keinginan ({keinginan_terpakai/total_spent*100:.0f}%)')
-            if tab_terpakai > 0:
-                sizes.append(tab_terpakai)
-                pie_colors.append('#ef4444')
-                pie_labels.append('Tabungan Terpakai')
+        if cluster_rows and total_spent > 0:
+            sizes = [int(r['total_cluster']) for r in cluster_rows if int(r['total_cluster']) > 0]
+            names = [r['cluster_nama'] for r in cluster_rows if int(r['total_cluster']) > 0]
+            colors = [cluster_palette[i % len(cluster_palette)] for i in range(len(sizes))]
+            legend_labels = [f"{names[i]}: {sizes[i]/total_spent*100:.1f}%" for i in range(len(sizes))]
 
             wedges, texts, autotexts = ax_pie.pie(
                 sizes,
-                autopct='%1.1f%%',
-                startangle=90,
-                colors=pie_colors,
+                autopct='%1.0f%%',
+                startangle=140,
+                colors=colors,
                 pctdistance=0.75,
-                wedgeprops=dict(width=0.38, edgecolor='#0f172a', linewidth=3)
+                wedgeprops=dict(width=0.36, edgecolor='#0f172a', linewidth=2.5)
             )
             for at in autotexts:
                 at.set_color('#ffffff')
-                at.set_fontsize(10)
+                at.set_fontsize(9)
                 at.set_weight('bold')
 
-            # Center label in donut
-            ax_pie.text(0, 0.12, 'Total Keluar', color='#94a3b8', fontsize=8.5, ha='center')
-            ax_pie.text(0, -0.15, f'Rp {total_spent:,}', color='#f8fafc', fontsize=11.5, weight='bold', ha='center')
-            ax_pie.legend(wedges, pie_labels, loc='lower center', bbox_to_anchor=(0.5, -0.15),
-                          ncol=2, frameon=False, fontsize=8.5, labelcolor='#cbd5e1')
+            ax_pie.text(0, 0.10, 'Total Keluar', color='#94a3b8', fontsize=8.5, ha='center')
+            ax_pie.text(0, -0.15, f'Rp {total_spent:,}', color='#f8fafc', fontsize=11, weight='bold', ha='center')
+            ax_pie.legend(wedges, legend_labels, loc='lower center', bbox_to_anchor=(0.5, -0.22),
+                          ncol=2, frameon=False, fontsize=8, labelcolor='#cbd5e1')
         else:
-            # If no expense yet, show full budget allocation donut
             sizes = [keb_limit, keinginan_limit, tab_limit]
             colors = ['#10b981', '#f59e0b', '#38bdf8']
             wedges, _, _ = ax_pie.pie(
@@ -754,14 +778,14 @@ def generate_expense_chart_image(budget_rows, now=None):
                 startangle=90,
                 colors=colors,
                 pctdistance=0.75,
-                wedgeprops=dict(width=0.38, edgecolor='#0f172a', linewidth=3)
+                wedgeprops=dict(width=0.36, edgecolor='#0f172a', linewidth=2.5)
             )
-            ax_pie.text(0, 0.12, 'Pengeluaran', color='#94a3b8', fontsize=8.5, ha='center')
-            ax_pie.text(0, -0.15, 'Rp 0', color='#f8fafc', fontsize=12, weight='bold', ha='center')
-            ax_pie.legend(['Kebutuhan', 'Keinginan', 'Tabungan'], loc='lower center', bbox_to_anchor=(0.5, -0.15),
-                          ncol=3, frameon=False, fontsize=8, labelcolor='#cbd5e1')
+            ax_pie.text(0, 0.10, 'Pengeluaran', color='#94a3b8', fontsize=8.5, ha='center')
+            ax_pie.text(0, -0.15, 'Rp 0', color='#f8fafc', fontsize=11, weight='bold', ha='center')
+            ax_pie.legend(['Kebutuhan (50%)', 'Keinginan (30%)', 'Tabungan (20%)'], loc='lower center', bbox_to_anchor=(0.5, -0.22),
+                          ncol=3, frameon=False, fontsize=7.5, labelcolor='#cbd5e1')
 
-        # 3. Right: Horizontal Progress Bars for each category
+        # 3. Right: Spacious Horizontal Progress Bars (No overlapping text)
         ax_bar = fig.add_subplot(gs[1, 1])
         ax_bar.set_facecolor('#0f172a')
         ax_bar.axis('off')
@@ -772,30 +796,32 @@ def generate_expense_chart_image(budget_rows, now=None):
             {'name': 'Tabungan (20% Target)', 'spent': tab_terpakai, 'limit': tab_limit, 'color': '#38bdf8'}
         ]
 
-        y_positions = [0.82, 0.46, 0.10]
+        y_positions = [0.78, 0.44, 0.10]
         for i, cat in enumerate(categories):
             y = y_positions[i]
             pct = (cat['spent'] / cat['limit'] * 100) if cat['limit'] > 0 else 0
             sisa = cat['limit'] - cat['spent']
+
+            # Line 1: Category Name
+            ax_bar.text(0.0, y + 0.20, cat['name'], color='#f8fafc', fontsize=10.5, weight='bold')
             
-            # Header text
-            ax_bar.text(0.0, y + 0.16, cat['name'], color='#f8fafc', fontsize=10.5, weight='bold')
-            ax_bar.text(1.0, y + 0.16, f"Rp {cat['spent']:,} / Rp {cat['limit']:,}", color='#94a3b8', fontsize=9.5, ha='right')
+            # Line 2: Amount details & Percentage
+            amount_text = f"Terpakai: Rp {cat['spent']:,} / Rp {cat['limit']:,} ({pct:.1f}%)"
+            ax_bar.text(0.0, y + 0.08, amount_text, color='#94a3b8', fontsize=8.5)
             
-            # Background bar
-            bg_bar = patches.FancyBboxPatch((0.0, y), 1.0, 0.08, boxstyle='round,pad=0.015', facecolor='#1e293b', edgecolor='none')
+            # Line 3: Background Bar & Fill Bar
+            bg_bar = patches.FancyBboxPatch((0.0, y - 0.03), 1.0, 0.065, boxstyle='round,pad=0.01', facecolor='#1e293b', edgecolor='none')
             ax_bar.add_patch(bg_bar)
             
-            # Fill bar
             if cat['spent'] > 0:
-                fill_w = max(0.03, min(1.0, pct / 100))
+                fill_w = max(0.02, min(1.0, pct / 100))
                 fill_color = '#ef4444' if pct > 100 else cat['color']
-                fill_bar = patches.FancyBboxPatch((0.0, y), fill_w, 0.08, boxstyle='round,pad=0.015', facecolor=fill_color, edgecolor='none')
+                fill_bar = patches.FancyBboxPatch((0.0, y - 0.03), fill_w, 0.065, boxstyle='round,pad=0.01', facecolor=fill_color, edgecolor='none')
                 ax_bar.add_patch(fill_bar)
             
-            # Footer text
-            status_sub = "100% Utuh Aman" if cat['spent'] == 0 else f"{pct:.1f}% terpakai • Sisa Rp {sisa:,}"
-            ax_bar.text(0.0, y - 0.09, status_sub, color='#64748b', fontsize=8.5)
+            # Line 4: Sisa Anggaran Subtext
+            sisa_text = "100% Utuh Terlindungi" if cat['spent'] == 0 else f"Sisa Dana: Rp {sisa:,}"
+            ax_bar.text(0.0, y - 0.11, sisa_text, color='#64748b', fontsize=8)
 
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=180, facecolor='#0f172a', bbox_inches='tight')
@@ -813,27 +839,45 @@ async def kirim_grafik_pengeluaran(update: Update, context: ContextTypes.DEFAULT
     try:
         with get_db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                # 1. Budget per pos
                 c.execute("""
-                    SELECT k.nama, b.limit_nominal,
-                           COALESCE(SUM(t.jumlah), 0) as terpakai
-                    FROM budget b 
-                    JOIN kategori k ON b.kategori_id = k.id 
-                    LEFT JOIN transaksi t ON t.kategori_id = k.id 
-                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
-                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
-                          AND t.tipe = 'pengeluaran'
-                    WHERE b.bulan = %s AND b.tahun = %s
-                    GROUP BY k.nama, b.limit_nominal
+                    SELECT k.nama, k.jenis_budget, b.limit_nominal,
+                           COALESCE((
+                               SELECT SUM(t.jumlah)
+                               FROM transaksi t
+                               JOIN kategori k2 ON t.kategori_id = k2.id
+                               WHERE k2.jenis_budget = k.jenis_budget
+                                 AND t.tipe = 'pengeluaran'
+                                 AND EXTRACT(MONTH FROM t.tanggal) = b.bulan
+                                 AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                           ), 0) as terpakai
+                    FROM budget b
+                    JOIN kategori k ON b.kategori_id = k.id
+                    WHERE b.bulan = %s AND b.tahun = %s;
                 """, (now.month, now.year))
                 budget_rows = c.fetchall()
+
+                # 2. Kluster pengeluaran spesifik
+                c.execute("""
+                    SELECT k.nama as cluster_nama, COALESCE(SUM(t.jumlah), 0) as total_cluster
+                    FROM transaksi t
+                    JOIN kategori k ON t.kategori_id = k.id
+                    WHERE t.tipe = 'pengeluaran' 
+                      AND k.jenis_budget IN ('kebutuhan', 'keinginan')
+                      AND EXTRACT(MONTH FROM t.tanggal) = %s
+                      AND EXTRACT(YEAR FROM t.tanggal) = %s
+                    GROUP BY k.nama
+                    ORDER BY total_cluster DESC;
+                """, (now.month, now.year))
+                cluster_rows = c.fetchall()
 
         if not budget_rows:
             await update.message.reply_text("Belum ada alokasi budget untuk ditampilkan grafiknya. Atur gaji dengan /gajian [nominal].", reply_markup=get_main_keyboard())
             return
 
-        chart_buf = generate_expense_chart_image(budget_rows, now)
+        chart_buf = generate_expense_chart_image(budget_rows, cluster_rows, now)
         if chart_buf:
-            caption = f"📈 *Grafik Proporsi Pengeluaran & Budget*\n\n" + analisis_kesehatan_keuangan(budget_rows, now)
+            caption = f"📈 *Grafik Analisis Pengeluaran & Budget*\n\n" + analisis_kesehatan_keuangan(budget_rows, now)
             await update.message.reply_photo(photo=chart_buf, caption=caption, reply_markup=get_main_keyboard())
         else:
             await update.message.reply_text("Tidak dapat menghasilkan grafik. Pastikan sudah ada transaksi atau target budget.", reply_markup=get_main_keyboard())
@@ -939,7 +983,7 @@ async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         with get_db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
-                # Saldo per dompet
+                # 1. Saldo per dompet
                 c.execute("""
                     SELECT 
                         COALESCE(NULLIF(TRIM(dompet), ''), 'Cash') as nama_dompet,
@@ -950,20 +994,37 @@ async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 """)
                 dompet_rows = c.fetchall()
 
-                # Budget per pos
+                # 2. Budget per pos (Roll-up)
                 c.execute("""
-                    SELECT k.nama, b.limit_nominal,
-                           COALESCE(SUM(t.jumlah), 0) as terpakai
-                    FROM budget b 
-                    JOIN kategori k ON b.kategori_id = k.id 
-                    LEFT JOIN transaksi t ON t.kategori_id = k.id 
-                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
-                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
-                          AND t.tipe = 'pengeluaran'
-                    WHERE b.bulan = %s AND b.tahun = %s
-                    GROUP BY k.nama, b.limit_nominal
+                    SELECT k.nama, k.jenis_budget, b.limit_nominal,
+                           COALESCE((
+                               SELECT SUM(t.jumlah)
+                               FROM transaksi t
+                               JOIN kategori k2 ON t.kategori_id = k2.id
+                               WHERE k2.jenis_budget = k.jenis_budget
+                                 AND t.tipe = 'pengeluaran'
+                                 AND EXTRACT(MONTH FROM t.tanggal) = b.bulan
+                                 AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                           ), 0) as terpakai
+                    FROM budget b
+                    JOIN kategori k ON b.kategori_id = k.id
+                    WHERE b.bulan = %s AND b.tahun = %s;
                 """, (now.month, now.year))
                 budget_rows = c.fetchall()
+
+                # 3. Kluster pengeluaran spesifik
+                c.execute("""
+                    SELECT k.nama as cluster_nama, COALESCE(SUM(t.jumlah), 0) as total_cluster
+                    FROM transaksi t
+                    JOIN kategori k ON t.kategori_id = k.id
+                    WHERE t.tipe = 'pengeluaran' 
+                      AND k.jenis_budget IN ('kebutuhan', 'keinginan')
+                      AND EXTRACT(MONTH FROM t.tanggal) = %s
+                      AND EXTRACT(YEAR FROM t.tanggal) = %s
+                    GROUP BY k.nama
+                    ORDER BY total_cluster DESC;
+                """, (now.month, now.year))
+                cluster_rows = c.fetchall()
 
         res = "💳 Rincian Saldo Dompet / Rekening:\n"
         total_saldo = 0
@@ -976,7 +1037,7 @@ async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             res += "Belum ada catatan saldo dompet.\n\n"
 
-        res += "📊 Alokasi & Pengeluaran (Siklus Gajian):\n"
+        res += "📊 Alokasi Anggaran (Siklus Gajian):\n"
         if budget_rows:
             for r in budget_rows:
                 limit = int(r['limit_nominal'])
@@ -987,9 +1048,14 @@ async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 icon = "📦" if "kebutuhan" in r['nama'].lower() else ("🎮" if "keinginan" in r['nama'].lower() or "hiburan" in r['nama'].lower() else "💰")
                 res += f"{icon} {r['nama']}:\n   {bar} (Terpakai: Rp {terpakai:,} / Limit: Rp {limit:,})\n   Sisa: Rp {sisa:,}\n\n"
-            res += analisis_kesehatan_keuangan(budget_rows, now)
-        else:
-            res += "Belum ada alokasi budget bulan ini. (Ketik: /gajian [nominal] atau chat langsung).\n"
+
+        if cluster_rows:
+            res += "📂 Rincian Kategori Pengeluaran Terpakai:\n"
+            for cl in cluster_rows:
+                res += f"• {cl['cluster_nama']}: Rp {int(cl['total_cluster']):,}\n"
+            res += "\n"
+
+        res += analisis_kesehatan_keuangan(budget_rows, now)
 
         await update.message.reply_text(res.strip(), reply_markup=get_main_keyboard())
     except Exception as e:

@@ -2,11 +2,13 @@ FROM node:20-bookworm-slim
 
 # Install Python & Dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
     python3 \
     python3-pip \
     python3-venv \
     curl \
     ca-certificates \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -1,82 +1,101 @@
 #!/bin/bash
 # ==============================================================================
-# SCRIPT DEPLOYMENT OTOMATIS: PERSONAL ASSISTANT BOT (TELEGRAM + WHATSAPP)
-# Google Cloud Always Free Tier (e2-micro) 100% Zero-Cost Guarantee
+# SCRIPT DEPLOYMENT LENGKAP BOT ASISTEN PRIBADI KE GOOGLE CLOUD / VPS LINUX
+# Otomatis: Install Dependensi, Setup Systemd Services, & Autostart 24/7 Nonstop
 # ==============================================================================
 
 set -e
 
-echo "🚀 Memulai instalasi Asisten Pribadi di Google Cloud Server..."
+echo "=========================================================="
+echo "  MEMULAI SETUP BOT ASISTEN PRIBADI DI SERVER (24/7 CLOUD)"
+echo "=========================================================="
 
-# 1. Update sistem & install dependensi dasar
+# 1. Update paket sistem
 sudo apt-get update -y
-sudo apt-get install -y curl git python3 python3-pip python3-venv postgresql postgresql-contrib ufw
+sudo apt-get install -y curl git python3 python3-pip python3-venv
 
-# Install Node.js v20 LTS
+# 2. Install Node.js v20 LTS jika belum ada
 if ! command -v node &> /dev/null; then
-    echo "📦 Menginstall Node.js..."
+    echo "📦 Menginstall Node.js v20..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
     sudo apt-get install -y nodejs
 fi
 
-# 2. Setup Database PostgreSQL Lokal di Server
-echo "🐘 Menyiapkan database PostgreSQL..."
-sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'REDACTED_PG_PASSWORD';" || true
-sudo -u postgres psql -c "CREATE DATABASE personal_assistant OWNER postgres;" || true
+# 3. Direktori Aplikasi
+APP_DIR="/opt/personal_assistant"
+sudo mkdir -p "$APP_DIR"
+sudo chown -R $USER:$USER "$APP_DIR"
 
-# 3. Setup Direktori Aplikasi
-APP_DIR="$HOME/personal_assistant"
-mkdir -p "$APP_DIR"
-cd "$APP_DIR"
+# 4. Salin / Pindahkan kode proyek ke /opt/personal_assistant jika dijalankan dari repo
+CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -d "$CURRENT_DIR/telegram_bot" ] && [ -d "$CURRENT_DIR/whatsapp_bot" ]; then
+    echo "📂 Menyalin file proyek..."
+    cp -r "$CURRENT_DIR/telegram_bot" "$APP_DIR/"
+    cp -r "$CURRENT_DIR/whatsapp_bot" "$APP_DIR/"
+fi
 
-# 4. Clone atau Siapkan Kode Bot
-echo "📂 Menyiapkan source code..."
-# Buat struktur direktori
-mkdir -p telegram_bot whatsapp_bot
+# 5. Setup Python Virtual Environment
+echo "🐍 Menyiapkan Python Virtual Environment..."
+cd "$APP_DIR/telegram_bot"
+python3 -m venv venv
+./venv/bin/pip install --upgrade pip
+./venv/bin/pip install google-genai psycopg2-binary python-dotenv "python-telegram-bot[job-queue]" APScheduler holidays requests
 
-# Inisialisasi PostgreSQL Schema
-sudo -u postgres psql -d personal_assistant << 'EOF'
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+# 6. Setup WhatsApp Gateway (Node.js)
+echo "📱 Menyiapkan dependensi WhatsApp Gateway..."
+cd "$APP_DIR/whatsapp_bot"
+npm install --legacy-peer-deps
 
-CREATE TABLE IF NOT EXISTS kategori (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    nama VARCHAR(100) NOT NULL UNIQUE,
-    tipe VARCHAR(50) NOT NULL,
-    jenis_budget VARCHAR(50)
-);
+# 7. Membuat Systemd Service untuk Telegram Bot & AI Backend
+echo "⚙️ Membuat systemd service untuk Telegram & AI Backend..."
+sudo tee /etc/systemd/system/assistant-telegram.service > /dev/null <<EOF
+[Unit]
+Description=Personal Assistant Telegram Bot and AI Backend
+After=network.target
 
-CREATE TABLE IF NOT EXISTS budget (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    kategori_id UUID REFERENCES kategori(id) ON DELETE CASCADE,
-    limit_nominal NUMERIC(15,2) NOT NULL,
-    bulan INT NOT NULL,
-    tahun INT NOT NULL
-);
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$APP_DIR/telegram_bot
+ExecStart=$APP_DIR/telegram_bot/venv/bin/python bot.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
 
-CREATE TABLE IF NOT EXISTS transaksi (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    kategori_id UUID REFERENCES kategori(id) ON DELETE SET NULL,
-    jumlah NUMERIC(15,2) NOT NULL,
-    tipe VARCHAR(50) NOT NULL,
-    tanggal DATE NOT NULL DEFAULT CURRENT_DATE,
-    deskripsi VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS jadwal_kerja (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tanggal DATE NOT NULL,
-    jam_mulai TIME NOT NULL,
-    jam_selesai TIME,
-    lokasi VARCHAR(100),
-    catatan TEXT
-);
-
-INSERT INTO kategori (nama, tipe, jenis_budget) VALUES
-('Kebutuhan Pokok', 'pengeluaran', 'kebutuhan'),
-('Keinginan & Hiburan', 'pengeluaran', 'keinginan'),
-('Tabungan', 'pengeluaran', 'tabungan')
-ON CONFLICT (nama) DO NOTHING;
+[Install]
+WantedBy=multi-user.target
 EOF
 
-echo "✅ Database PostgreSQL berhasil disiapkan!"
+# 8. Membuat Systemd Service untuk WhatsApp Gateway
+echo "⚙️ Membuat systemd service untuk WhatsApp Gateway..."
+sudo tee /etc/systemd/system/assistant-whatsapp.service > /dev/null <<EOF
+[Unit]
+Description=Personal Assistant WhatsApp Gateway
+After=network.target assistant-telegram.service
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$APP_DIR/whatsapp_bot
+ExecStart=/usr/bin/node gateway.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 9. Reload & Aktifkan Service agar jalan otomatis saat server booting
+sudo systemctl daemon-reload
+sudo systemctl enable assistant-telegram.service
+sudo systemctl enable assistant-whatsapp.service
+sudo systemctl restart assistant-telegram.service
+sudo systemctl restart assistant-whatsapp.service
+
+echo "=========================================================="
+echo "  ✅ DEPLOYMENT BERHASIL! BOT SUDAH AKTIF 24/7 NONSTOP    "
+echo "=========================================================="
+echo "Status Service Telegram: sudo systemctl status assistant-telegram"
+echo "Status Service WhatsApp: sudo systemctl status assistant-whatsapp"
+echo "Cek Log: journalctl -u assistant-telegram -f"
+echo "=========================================================="

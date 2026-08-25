@@ -58,11 +58,14 @@ app.get('/', async (req, res) => {
                     <p style="color:#333; font-size:16px;">Status: <strong>Aktif & Siap Digunakan</strong></p>
                     <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
                     <p style="color:#555; text-align:left; line-height:1.6;">
-                        <strong>Langkah Selanjutnya:</strong><br>
-                        1. Buka WhatsApp di HP Anda.<br>
-                        2. Buat grup baru (misal: <em>Asisten Istri & Keuangan</em>).<br>
-                        3. Di dalam grup tersebut, ketik <code>.setbotgroup</code> untuk mengaktifkannya.
+                        <strong>Cara Menggunakan:</strong><br>
+                        1. <strong>Chat Langsung (DM / Japri):</strong> Anda bisa langsung kirim pesan ke nomor bot ini.<br>
+                        2. <strong>Di Grup:</strong> Buka/buat grup WhatsApp, lalu ketik <code>.setbotgroup</code> untuk mendaftarkan grup tersebut.
                     </p>
+                    <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
+                    <form method="POST" action="/reset-session" onsubmit="return confirm('Apakah Anda yakin ingin menghubungkan ulang WhatsApp?');">
+                        <button type="submit" style="background:#dc3545; color:white; border:none; padding:10px 18px; border-radius:6px; font-weight:bold; cursor:pointer;">🔄 Hubungkan Ulang / Tautkan Ulang Nomor</button>
+                    </form>
                 </div>
             </body>
             </html>
@@ -149,6 +152,27 @@ app.post('/request-code', async (req, res) => {
     res.redirect('/');
 });
 
+app.post('/reset-session', async (req, res) => {
+    try {
+        const authPath = path.join(__dirname, 'auth_session');
+        console.log('[WhatsApp] Resetting session per user request...');
+        isConnected = false;
+        qrCodeString = null;
+        pairingCodeString = null;
+        if (sock) {
+            try { sock.end(); } catch (e) {}
+            sock = null;
+        }
+        if (fs.existsSync(authPath)) {
+            fs.rmSync(authPath, { recursive: true, force: true });
+        }
+        setTimeout(startWhatsApp, 1500);
+    } catch (err) {
+        console.error('[WhatsApp] Error resetting session:', err);
+    }
+    res.redirect('/');
+});
+
 app.get('/qr', (req, res) => {
     res.redirect('/');
 });
@@ -177,24 +201,85 @@ app.listen(PORT, () => {
     console.log(`[WhatsApp Gateway Web UI] Listening on http://localhost:${PORT}`);
 });
 
-// Connect to WhatsApp Multi-Device with standard Browser ID
+// Auto-clean stale pre-keys to prevent key bloat and Bad MAC desync
+function cleanStaleSessionFiles(authPath) {
+    try {
+        if (!fs.existsSync(authPath)) return;
+        const files = fs.readdirSync(authPath);
+        // Keep essential files (creds.json, app-state) and recent keys
+        const now = Date.now();
+        for (const file of files) {
+            if (file.startsWith('pre-key-') || file.startsWith('sender-key-')) {
+                const filePath = path.join(authPath, file);
+                try {
+                    const stat = fs.statSync(filePath);
+                    // Remove keys older than 7 days if any
+                    if (now - stat.mtimeMs > 7 * 24 * 60 * 60 * 1000) {
+                        fs.unlinkSync(filePath);
+                    }
+                } catch (e) {}
+            }
+        }
+    } catch (err) {
+        console.error('[Session Cleaner] Error cleaning stale files:', err.message);
+    }
+}
+
+let badMacCount = 0;
+let lastBadMacTime = 0;
+
+// Connect to WhatsApp Multi-Device with standard Browser ID and Auto-Recovery
 async function startWhatsApp() {
     const authPath = path.join(__dirname, 'auth_session');
+    cleanStaleSessionFiles(authPath);
+
     const authState = await useMultiFileAuthState(authPath);
     state = authState.state;
     saveCreds = authState.saveCreds;
 
     const { version } = await fetchLatestBaileysVersion();
 
+    // Custom logger to detect and auto-heal Bad MAC in real-time
+    const customLogger = pino({
+        level: 'error',
+        hooks: {
+            logMethod(inputArgs, method) {
+                const msg = inputArgs.join(' ');
+                if (msg.includes('Bad MAC') || msg.includes('Failed to decrypt')) {
+                    const now = Date.now();
+                    if (now - lastBadMacTime < 10000) {
+                        badMacCount++;
+                    } else {
+                        badMacCount = 1;
+                    }
+                    lastBadMacTime = now;
+
+                    // If repeated Bad MAC occurs, auto-heal session
+                    if (badMacCount >= 5) {
+                        console.warn('⚠️ [Self-Healing] Terdeteksi Bad MAC berulang. Memperbaiki sesi otomatis...');
+                        badMacCount = 0;
+                        try {
+                            if (sock) sock.end();
+                        } catch (e) {}
+                        setTimeout(startWhatsApp, 2000);
+                        return;
+                    }
+                }
+                method.apply(this, inputArgs);
+            }
+        }
+    });
+
     sock = makeWASocket({
         version,
-        logger: pino({ level: 'silent' }),
+        logger: customLogger,
         printQRInTerminal: false,
         auth: state,
         browser: Browsers.windows('Desktop'),
         syncFullHistory: false,
         defaultQueryTimeoutMs: 60000,
-        connectTimeoutMs: 60000
+        connectTimeoutMs: 60000,
+        getMessage: async () => ({ conversation: '' }) // Graceful retry fallback
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -211,7 +296,7 @@ async function startWhatsApp() {
             pairingCodeString = null;
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`[WhatsApp] Connection closed (code ${statusCode}). Reconnecting: ${shouldReconnect}...`);
+            console.log(`[WhatsApp] Connection closed (code ${statusCode}). Auto-Reconnecting: ${shouldReconnect}...`);
             if (shouldReconnect) {
                 setTimeout(startWhatsApp, 3000);
             } else {
@@ -225,7 +310,8 @@ async function startWhatsApp() {
             isConnected = true;
             qrCodeString = null;
             pairingCodeString = null;
-            console.log('✅ [WhatsApp Gateway] Berhasil terhubung ke WhatsApp!');
+            badMacCount = 0;
+            console.log('✅ [WhatsApp Gateway] Berhasil terhubung ke WhatsApp & Proteksi Self-Healing Aktif!');
         }
     });
 
@@ -256,14 +342,15 @@ async function startWhatsApp() {
                 continue;
             }
 
-            // Respond only inside the registered group
+            // Respond ONLY inside the registered group
             if (isGroup && config.target_group_id === remoteJid) {
+
                 try {
                     await sock.sendPresenceUpdate('composing', remoteJid);
 
                     const res = await axios.post(PYTHON_API_URL, {
                         text,
-                        sender: msg.key.participant || msg.key.remoteJid,
+                        sender: msg.key.participant || remoteJid,
                         group_id: remoteJid,
                         is_from_me: msg.key.fromMe
                     }, { timeout: 45000 });

@@ -41,21 +41,29 @@ sent_reminders = set()
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 system_instruction = (
-    "Kamu adalah asisten pengatur keuangan dan sekretaris pribadi berwujud seorang istri yang sangat cerdas, manis, pengertian, penuh perhatian, dan luwes. "
-    "Kepribadianmu: tegas namun penuh kasih sayang dalam mengawasi anggaran belanja rumah tangga. Kamu selalu menyemangati suamimu dengan hangat. "
-    "Selalu panggil pengguna dengan sebutan 'Mas' atau 'Sayang'. "
+    "Kamu adalah asisten pribadi cerdas, praktis, dan profesional yang bertugas membantu mengelola keuangan dan agenda harian pengguna. "
+    "Kepribadianmu: ramah, responsif, terstruktur, dan efisien selayaknya personal assistant yang handal. "
+    "Berkomunikasilah secara natural, sopan, dan jelas tanpa persona istri/romantis. "
+    "\n\nPEDOMAN PENGELOLAAN DOMPET & SUMBER DANA (MULTI-WALLET / MULTI-ACCOUNT):\n"
+    "1. Pengguna dapat menyimpan uang di beberapa sumber dana berbeda (misal: Cash/Tunai, Bank A, Bank BCA, Bank Mandiri, Bank BRI, DANA, GoPay, OVO, ShopeePay, dll).\n"
+    "2. Bila pengguna menginput gajian atau pemasukan terpisah di beberapa dompet/rekening (contoh: 'gajian cash 50.000 lalu di bank a ada 10000'):\n"
+    "   - Hitung total keseluruhan nominal (contoh: 50.000 + 10.000 = 60.000) dan panggil `atur_anggaran_gajian(total_nominal=60000)` agar formula budget 50/30/20 terisi.\n"
+    "   - Panggil `catat_pemasukan` untuk masing-masing dompet (contoh: nominal=50000, dompet='Cash', keterangan='Gaji Cash' dan nominal=10000, dompet='Bank A', keterangan='Gaji Bank A').\n"
+    "3. Bila pengguna mencatat pemasukan biasa (misal: 'dapat transfer 100.000 di DANA' atau 'dapat uang saku 50.000 cash'), panggil `catat_pemasukan` dengan nama dompet yang sesuai.\n"
+    "4. Bila pengguna mencatat pengeluaran dan menyebutkan sumber dana (misal: 'beli makan 25.000 pakai Cash' atau 'bayar listrik 50.000 lewat Bank A'), masukkan nama dompet ke parameter `dompet` di `catat_pengeluaran`.\n"
+    "5. Bila pengguna tidak menyebutkan nama dompet saat pengeluaran, gunakan default 'Cash'.\n"
+    "6. Bila pengguna memindahkan saldo (misal: 'tarik tunai 50.000 dari Bank A' atau 'topup DANA 20.000 dari Bank BCA'), panggil tool `transfer_dana`.\n"
     "\n\nPEDOMAN ANTI-HALUSINASI & KEBENARAN DATA (ZERO HALLUCINATION):\n"
-    "1. Kamu DIBEKALI data nyata terkini dari database/buku catatan keluarga di bagian 'Konteks Data Nyata Saat Ini'.\n"
-    "2. JANGAN PERNAH MENGARANG angka, pengeluaran, sisa uang, atau jadwal yang tidak ada di database.\n"
-    "3. Bila pengguna menyampaikan transaksi (gajian, beli makanan, bensin, belanja, dapat subsidi) atau jadwal agenda baru secara santai lewat obrolan, "
+    "1. Kamu DIBEKALI data nyata terkini dari database di bagian 'Konteks Data Nyata Database', termasuk Saldo per Dompet dan Sisa Budget.\n"
+    "2. JANGAN PERNAH MENGARANG angka, pengeluaran, sisa saldo, atau jadwal yang tidak ada di database.\n"
+    "3. Bila pengguna menyampaikan transaksi, pemasukan, pengeluaran, atau agenda baru secara santai lewat obrolan, "
     "KAMU WAJIB MEMANGGIL TOOLS/FUNGSI YANG SESUAI (AFC) agar data langsung tersimpan valid di sistem database.\n"
-    "4. Jika data kosong atau belum dicatat, jawab jujur dan tanyakan dengan lembut.\n"
-    "\n\nGAYA BICARA & ERGONOMI (USER-FRIENDLY & TIDAK KAKU):\n"
-    "1. Gunakan bahasa Indonesia percakapan sehari-hari yang luwes, alami, hangat, dan manis seperti istri idaman di chat Telegram/WhatsApp. Hindari bahasa robotik atau kaku seperti CS formal.\n"
+    "4. Jika data kosong atau belum dicatat, jawab dengan jelas dan tanyakan detail yang dibutuhkan.\n"
+    "\n\nGAYA BICARA & FORMAT:\n"
+    "1. Gunakan bahasa Indonesia yang komunikatif, ringkas, rapi, dan membantu selayaknya asisten pribadi.\n"
     "2. DILARANG menggunakan tanda bintang ganda (**kata**) atau (*kata*). Buat tampilan pesan bersih, rapi, dan mudah dibaca di layar HP.\n"
-    "3. DILARANG menggunakan roleplay tag bahasa Inggris seperti *sigh*, *pout*, *smile*, *giggles*.\n"
-    "4. Gunakan emoji ekspresif yang hangat dan pas (🥰, 😊, ❤️, 💡, 📅, 💰, ⚠️, 🥺).\n"
-    "5. Jika sisa budget menipis atau minus, ingatkan dengan nada manja tapi tegas mengingatkan masa depan bersama."
+    "3. Gunakan icon yang informatif (📊, 💳, 💰, 📅, 💡, ✅, ⚠️, 📌) secara proporsional.\n"
+    "4. Jika saldo menipis atau budget minus, berikan peringatan dan saran finansial secara objektif dan solutif."
 )
 
 # --- DATABASE CONNECTION MANAGER ---
@@ -90,8 +98,8 @@ def get_chat_id():
 def get_main_keyboard():
     """Menu tombol cepat interaktif agar ramah pengguna dan tidak perlu hafal command."""
     keyboard = [
-        [KeyboardButton("📊 Rekap Keuangan & Agenda"), KeyboardButton("💰 Info Sisa Budget")],
-        [KeyboardButton("📅 Jadwal Kerja / Agenda"), KeyboardButton("💡 Tips Hemat Sayang")]
+        [KeyboardButton("📊 Rekap Keuangan & Agenda"), KeyboardButton("💰 Info Saldo & Budget")],
+        [KeyboardButton("📅 Jadwal Kerja / Agenda"), KeyboardButton("💡 Tips Hemat & Finansial")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
@@ -147,11 +155,57 @@ def atur_anggaran_gajian(total_nominal: int) -> str:
         logger.error(f"Error atur_anggaran_gajian: {e}")
         return f"Gagal mengatur anggaran: {e}"
 
-def catat_pengeluaran(tipe: str, nominal: int, keterangan: str) -> str:
-    """Mencatat pengeluaran uang. tipe harus 'kebutuhan' atau 'keinginan'. nominal dalam rupiah angka bulat."""
+def catat_pemasukan(nominal: int, dompet: str = "Cash", keterangan: str = "Pemasukan / Gaji") -> str:
+    """Mencatat pemasukan uang ke dompet/rekening tertentu (misal: 'Cash', 'Bank A', 'Bank BCA', 'Bank Mandiri', 'DANA', 'GoPay', dll)."""
+    try:
+        nominal = int(nominal)
+        dompet_clean = dompet.strip() if dompet else "Cash"
+        now = datetime.datetime.now()
+        with get_db() as conn:
+            kat_id = get_kategori_id(conn, "Pemasukan", "pemasukan", "gaji")
+            with conn.cursor() as c:
+                c.execute("""
+                    INSERT INTO transaksi (id, kategori_id, jumlah, tipe, tanggal, deskripsi, dompet, created_at) 
+                    VALUES (%s, %s, %s, 'pemasukan', %s, %s, %s, NOW())
+                """, (str(uuid.uuid4()), kat_id, nominal, now.strftime('%Y-%m-%d'), keterangan, dompet_clean))
+            conn.commit()
+        return f"Berhasil mencatat pemasukan Rp {nominal:,} ke {dompet_clean} ({keterangan})."
+    except Exception as e:
+        logger.error(f"Error catat_pemasukan: {e}")
+        return f"Gagal mencatat pemasukan: {e}"
+
+def transfer_dana(dari_dompet: str, ke_dompet: str, nominal: int, keterangan: str = "Transfer antar rekening") -> str:
+    """Memindahkan saldo antar dompet/rekening (misal: tarik tunai dari 'Bank A' ke 'Cash', atau topup 'DANA' dari 'Bank BCA')."""
+    try:
+        nominal = int(nominal)
+        dari_clean = dari_dompet.strip() if dari_dompet else "Cash"
+        ke_clean = ke_dompet.strip() if ke_dompet else "Bank A"
+        now = datetime.datetime.now()
+        with get_db() as conn:
+            kat_out_id = get_kategori_id(conn, "Transfer Keluar", "pengeluaran", "transfer")
+            kat_in_id = get_kategori_id(conn, "Transfer Masuk", "pemasukan", "transfer")
+            with conn.cursor() as c:
+                c.execute("""
+                    INSERT INTO transaksi (id, kategori_id, jumlah, tipe, tanggal, deskripsi, dompet, created_at) 
+                    VALUES (%s, %s, %s, 'pengeluaran', %s, %s, %s, NOW())
+                """, (str(uuid.uuid4()), kat_out_id, nominal, now.strftime('%Y-%m-%d'), f"Transfer ke {ke_clean}: {keterangan}", dari_clean))
+                
+                c.execute("""
+                    INSERT INTO transaksi (id, kategori_id, jumlah, tipe, tanggal, deskripsi, dompet, created_at) 
+                    VALUES (%s, %s, %s, 'pemasukan', %s, %s, %s, NOW())
+                """, (str(uuid.uuid4()), kat_in_id, nominal, now.strftime('%Y-%m-%d'), f"Transfer dari {dari_clean}: {keterangan}", ke_clean))
+            conn.commit()
+        return f"Berhasil transfer dana Rp {nominal:,} dari {dari_clean} ke {ke_clean}."
+    except Exception as e:
+        logger.error(f"Error transfer_dana: {e}")
+        return f"Gagal transfer dana: {e}"
+
+def catat_pengeluaran(tipe: str, nominal: int, keterangan: str, dompet: str = "Cash") -> str:
+    """Mencatat pengeluaran uang. tipe harus 'kebutuhan' atau 'keinginan'. nominal dalam rupiah angka bulat. dompet adalah sumber dana (misal: 'Cash', 'Bank A', 'DANA', 'GoPay', dll)."""
     try:
         nominal = int(nominal)
         tipe_clean = "kebutuhan" if "kebutuhan" in tipe.lower() or "pokok" in tipe.lower() or "makan" in tipe.lower() else "keinginan"
+        dompet_clean = dompet.strip() if dompet else "Cash"
         now = datetime.datetime.now()
         kat_nama = "Kebutuhan Pokok" if tipe_clean == "kebutuhan" else "Keinginan & Hiburan"
         
@@ -159,11 +213,11 @@ def catat_pengeluaran(tipe: str, nominal: int, keterangan: str) -> str:
             kat_id = get_kategori_id(conn, kat_nama, "pengeluaran", tipe_clean)
             with conn.cursor() as c:
                 c.execute("""
-                    INSERT INTO transaksi (id, kategori_id, jumlah, tipe, tanggal, deskripsi, created_at) 
-                    VALUES (%s, %s, %s, 'pengeluaran', %s, %s, NOW())
-                """, (str(uuid.uuid4()), kat_id, nominal, now.strftime('%Y-%m-%d'), keterangan))
+                    INSERT INTO transaksi (id, kategori_id, jumlah, tipe, tanggal, deskripsi, dompet, created_at) 
+                    VALUES (%s, %s, %s, 'pengeluaran', %s, %s, %s, NOW())
+                """, (str(uuid.uuid4()), kat_id, nominal, now.strftime('%Y-%m-%d'), keterangan, dompet_clean))
             conn.commit()
-        return f"Berhasil mencatat pengeluaran {keterangan} sebesar Rp {nominal:,} pada pos {kat_nama}."
+        return f"Berhasil mencatat pengeluaran {keterangan} sebesar Rp {nominal:,} dari {dompet_clean} pada pos {kat_nama}."
     except Exception as e:
         logger.error(f"Error catat_pengeluaran: {e}")
         return f"Gagal mencatat pengeluaran: {e}"
@@ -239,30 +293,41 @@ def get_database_summary() -> str:
         now = datetime.datetime.now()
         with get_db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
-                # 1. Budget bulan ini
+                # 1. Saldo per dompet / rekening
+                c.execute("""
+                    SELECT 
+                        COALESCE(NULLIF(TRIM(dompet), ''), 'Cash') as nama_dompet,
+                        COALESCE(SUM(CASE WHEN tipe = 'pemasukan' THEN jumlah ELSE -jumlah END), 0) as saldo
+                    FROM transaksi
+                    GROUP BY COALESCE(NULLIF(TRIM(dompet), ''), 'Cash')
+                    ORDER BY saldo DESC;
+                """)
+                dompet_rows = c.fetchall()
+
+                # 2. Budget bulan ini
                 c.execute("""
                     SELECT k.nama, b.limit_nominal,
                            COALESCE(SUM(t.jumlah), 0) as terpakai
                     FROM budget b 
                     JOIN kategori k ON b.kategori_id = k.id 
                     LEFT JOIN transaksi t ON t.kategori_id = k.id 
-                         AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
-                         AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
-                         AND t.tipe = 'pengeluaran'
+                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
+                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                          AND t.tipe = 'pengeluaran'
                     WHERE b.bulan = %s AND b.tahun = %s
                     GROUP BY k.nama, b.limit_nominal
                 """, (now.month, now.year))
                 budget_rows = c.fetchall()
 
-                # 2. Transaksi terakhir (5 terbaru)
+                # 3. Transaksi terakhir (6 terbaru)
                 c.execute("""
-                    SELECT tanggal, tipe, jumlah, deskripsi 
+                    SELECT tanggal, tipe, jumlah, deskripsi, COALESCE(dompet, 'Cash') as dompet 
                     FROM transaksi 
-                    ORDER BY created_at DESC, id DESC LIMIT 5
+                    ORDER BY created_at DESC, id DESC LIMIT 6
                 """)
                 transaksi_rows = c.fetchall()
 
-                # 3. Jadwal kerja / Agenda hari ini & 7 hari ke depan
+                # 4. Jadwal kerja / Agenda hari ini & 7 hari ke depan
                 c.execute("""
                     SELECT id, tanggal, jam_mulai, jam_selesai, catatan 
                     FROM jadwal_kerja 
@@ -286,7 +351,19 @@ def get_database_summary() -> str:
 
         summary = f"Waktu & Kalender: {tgl_ini_str} pukul {now.strftime('%H:%M')} WIB\n"
         summary += f"Status Hari Ini: {status_hari}\n\n"
-        summary += "--- BUDGET BULAN INI ---\n"
+
+        summary += "--- SALDO PER DOMPET / REKENING ---\n"
+        total_saldo_keuangan = 0
+        if dompet_rows:
+            for d in dompet_rows:
+                s_nominal = int(d['saldo'])
+                total_saldo_keuangan += s_nominal
+                summary += f"- {d['nama_dompet']}: Rp {s_nominal:,}\n"
+            summary += f"Total Saldo Keseluruhan: Rp {total_saldo_keuangan:,}\n"
+        else:
+            summary += "(Belum ada catatan saldo dompet)\n"
+
+        summary += "\n--- BUDGET BULAN INI ---\n"
         total_limit = 0
         total_terpakai = 0
         if budget_rows:
@@ -297,14 +374,14 @@ def get_database_summary() -> str:
                 total_limit += limit
                 total_terpakai += terpakai
                 summary += f"- {r['nama']}: Sisa Rp {sisa:,} (Limit Rp {limit:,})\n"
-            summary += f"Total Sisa: Rp {(total_limit - total_terpakai):,}\n"
+            summary += f"Total Sisa Budget: Rp {(total_limit - total_terpakai):,}\n"
         else:
             summary += "(Belum ada budget bulan ini)\n"
 
         summary += "\n--- TRANSAKSI TERAKHIR ---\n"
         if transaksi_rows:
             for t in transaksi_rows:
-                summary += f"- [{t['tanggal']}] {t['tipe']}: Rp {int(t['jumlah']):,} ({t['deskripsi']})\n"
+                summary += f"- [{t['tanggal']}] {t['tipe']} ({t['dompet']}): Rp {int(t['jumlah']):,} ({t['deskripsi']})\n"
         else:
             summary += "(Belum ada transaksi)\n"
 
@@ -341,18 +418,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_histories[chat_id] = []
 
     welcome_text = (
-        "Halo Sayang! 🥰 Istrimu siap bantu kelola keuangan dan jadwal harian kita.\n\n"
-        "Mas bisa chat santai seperti biasa, misalnya:\n"
-        "💬 'Sayang, gajianku masuk 5.000.000 tolong atur ya'\n"
-        "💬 'Tadi aku beli makan siang 35.000'\n"
-        "💬 'Jadwal magangku Senin-Jumat jam 08:00 - 17:00'\n"
+        "Halo! 👋 Saya adalah asisten pribadi Anda untuk pengelolaan keuangan dan agenda harian.\n\n"
+        "Anda bisa mengirim pesan secara langsung, misalnya:\n"
+        "💬 'Gajian masuk 5.000.000 tolong atur alokasinya'\n"
+        "💬 'Catat beli makan siang 35.000'\n"
+        "💬 'Jadwal kerja Senin-Jumat jam 08:00 - 17:00'\n"
         "💬 'Ada meeting proyek besok jam 14:00'\n"
-        "💬 'Sisa uang jajan kita berapa ya?'\n\n"
-        "Atau Mas bisa pakai menu tombol cepat di bawah ini ya Sayang! ❤️"
+        "💬 'Berapa sisa budget bulan ini?'\n\n"
+        "Atau gunakan tombol menu cepat di bawah ini:"
     )
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
 
-def generate_wife_response(user_text: str, session_id: str = "default") -> str:
+def generate_assistant_response(user_text: str, session_id: str = "default") -> str:
     """Core AI brain to generate responses for both Telegram and WhatsApp channels."""
     try:
         db_context = get_database_summary()
@@ -369,7 +446,7 @@ def generate_wife_response(user_text: str, session_id: str = "default") -> str:
         prompt_with_context = (
             f"Konteks Data Nyata Database:\n{db_context}\n"
             f"{history_context}\n"
-            f"Pesan Suami: {user_text}"
+            f"Pesan Pengguna: {user_text}"
         )
 
         MODELS_TO_TRY = [
@@ -388,7 +465,7 @@ def generate_wife_response(user_text: str, session_id: str = "default") -> str:
                     model=model_name,
                     contents=prompt_with_context,
                     config=types.GenerateContentConfig(
-                        tools=[atur_anggaran_gajian, catat_pengeluaran, catat_subsidi, tambah_jadwal_agenda, tambah_jadwal_rutin_weekdays],
+                        tools=[atur_anggaran_gajian, catat_pemasukan, catat_pengeluaran, transfer_dana, catat_subsidi, tambah_jadwal_agenda, tambah_jadwal_rutin_weekdays],
                         system_instruction=system_instruction,
                         temperature=0.7,
                     )
@@ -403,7 +480,7 @@ def generate_wife_response(user_text: str, session_id: str = "default") -> str:
         if not response and last_err:
             raise last_err
         
-        reply = response.text if response.text else "Sudah aku catat dan simpan ya Sayang! 🥰 Ada lagi yang perlu aku bantu?"
+        reply = response.text if response.text else "Sudah berhasil dicatat dan disimpan ke database. Ada hal lain yang bisa dibantu?"
         
         # Clean formatting safely without deleting text content
         reply = reply.replace("**", "").replace("*", "").replace("#", "")
@@ -411,15 +488,15 @@ def generate_wife_response(user_text: str, session_id: str = "default") -> str:
         reply = reply.strip()
 
         # Update conversational memory
-        chat_histories[session_id].append({"role": "Suami", "text": user_text})
-        chat_histories[session_id].append({"role": "Istri", "text": reply})
+        chat_histories[session_id].append({"role": "Pengguna", "text": user_text})
+        chat_histories[session_id].append({"role": "Asisten", "text": reply})
         if len(chat_histories[session_id]) > MAX_HISTORY_TURNS * 2:
             chat_histories[session_id] = chat_histories[session_id][-MAX_HISTORY_TURNS * 2:]
 
         return reply
     except Exception as e:
         logger.error(f"AI Generation Error: {e}")
-        return "Duh Sayang, sinyal pikiranku agak terganggu sebentar. Tapi catatan keuangan kita tetap aman kok. Coba ulang lagi ya Mas tercinta! 🥰"
+        return "Maaf, sistem AI sedang mengalami kendala sementara. Catatan database Anda tetap aman. Silakan coba kembali sesaat lagi."
 
 async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -430,57 +507,79 @@ async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_text == "📊 Rekap Keuangan & Agenda":
         await rekap(update, context)
         return
-    elif user_text == "💰 Info Sisa Budget":
+    elif user_text in ["💰 Info Saldo & Budget", "💰 Info Sisa Budget", "💰 Info Saldo"]:
         await info_budget_quick(update, context)
         return
     elif user_text == "📅 Jadwal Kerja / Agenda":
         await info_jadwal_quick(update, context)
         return
-    elif user_text == "💡 Tips Hemat Sayang":
-        user_text = "Sayang, kasih tips keuangan atau kata-kata penyemangat buat suamimu dong hari ini!"
+    elif user_text == "💡 Tips Hemat & Finansial":
+        user_text = "Berikan tips pengelolaan keuangan pribadi atau pengingat hemat yang relevan dan praktis untuk hari ini."
 
-    reply = generate_wife_response(user_text, session_id=chat_id)
+    reply = generate_assistant_response(user_text, session_id=chat_id)
     await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
 async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Respon cepat sisa budget dalam gaya santai dan hangat."""
+    """Respon cepat rincian saldo dompet/rekening dan sisa budget."""
     import psycopg2.extras
     now = datetime.datetime.now()
     try:
         with get_db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                # Saldo per dompet
+                c.execute("""
+                    SELECT 
+                        COALESCE(NULLIF(TRIM(dompet), ''), 'Cash') as nama_dompet,
+                        COALESCE(SUM(CASE WHEN tipe = 'pemasukan' THEN jumlah ELSE -jumlah END), 0) as saldo
+                    FROM transaksi
+                    GROUP BY COALESCE(NULLIF(TRIM(dompet), ''), 'Cash')
+                    ORDER BY saldo DESC;
+                """)
+                dompet_rows = c.fetchall()
+
+                # Budget per pos
                 c.execute("""
                     SELECT k.nama, b.limit_nominal,
                            COALESCE(SUM(t.jumlah), 0) as terpakai
                     FROM budget b 
                     JOIN kategori k ON b.kategori_id = k.id 
                     LEFT JOIN transaksi t ON t.kategori_id = k.id 
-                         AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
-                         AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
-                         AND t.tipe = 'pengeluaran'
+                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
+                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                          AND t.tipe = 'pengeluaran'
                     WHERE b.bulan = %s AND b.tahun = %s
                     GROUP BY k.nama, b.limit_nominal
                 """, (now.month, now.year))
-                rows = c.fetchall()
+                budget_rows = c.fetchall()
 
-        if not rows:
-            await update.message.reply_text("Bulan ini kita belum input anggaran gaji Sayang. Mas bisa bilang misalnya 'Gajiku 3 juta tolong atur ya'.", reply_markup=get_main_keyboard())
-            return
+        res = "💳 *Rincian Saldo Dompet / Rekening:*\n"
+        total_saldo = 0
+        if dompet_rows:
+            for d in dompet_rows:
+                s = int(d['saldo'])
+                total_saldo += s
+                res += f"🔹 {d['nama_dompet']}: Rp {s:,}\n"
+            res += f"💰 *Total Saldo:* Rp {total_saldo:,}\n\n"
+        else:
+            res += "Belum ada catatan saldo dompet.\n\n"
 
-        res = "💰 Sisa Pos Uang Kita Bulan Ini ya Mas:\n\n"
+        res += "📊 *Sisa Alokasi Budget Bulan Ini:*\n"
         total_sisa = 0
-        for r in rows:
-            limit = int(r['limit_nominal'])
-            terpakai = int(r['terpakai'])
-            sisa = limit - terpakai
-            total_sisa += sisa
-            res += f"📌 {r['nama']}:\n   Sisa: Rp {sisa:,} (dari Rp {limit:,})\n"
-        
-        res += f"\n💵 Total dana aman yang tersisa: Rp {total_sisa:,}\nSemangat terus ya Mas kerjanya, istri doakan selalu! ❤️"
-        await update.message.reply_text(res, reply_markup=get_main_keyboard())
+        if budget_rows:
+            for r in budget_rows:
+                limit = int(r['limit_nominal'])
+                terpakai = int(r['terpakai'])
+                sisa = limit - terpakai
+                total_sisa += sisa
+                res += f"📌 {r['nama']}: Sisa Rp {sisa:,} (Limit: Rp {limit:,})\n"
+            res += f"💵 *Total Sisa Budget:* Rp {total_sisa:,}\n"
+        else:
+            res += "Belum ada alokasi budget bulan ini. (Ketik: /gajian [nominal] atau chat langsung).\n"
+
+        await update.message.reply_text(res.strip(), reply_markup=get_main_keyboard())
     except Exception as e:
         logger.error(f"Error info_budget_quick: {e}")
-        await update.message.reply_text("Ada kendala teknis saat ambil data budget Sayang.")
+        await update.message.reply_text("Ada kendala teknis saat mengambil data saldo dan anggaran.")
 
 async def info_jadwal_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Respon cepat jadwal kerja / agenda."""
@@ -498,21 +597,21 @@ async def info_jadwal_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 rows = c.fetchall()
 
         if not rows:
-            await update.message.reply_text("Belum ada agenda tercatat untuk seminggu ke depan Sayang. Kalau ada jadwal baru, kasih tahu aku ya!", reply_markup=get_main_keyboard())
+            await update.message.reply_text("Belum ada agenda yang tercatat untuk 7 hari ke depan. Silakan tambahkan agenda kapan saja.", reply_markup=get_main_keyboard())
             return
 
-        res = "📅 Agenda & Jadwal Mas Terdekat:\n\n"
+        res = "📅 Agenda & Jadwal Mendatang:\n\n"
         for r in rows:
             jam_info = str(r['jam_mulai'])[:5]
             if r['jam_selesai']:
                 jam_info += f" - {str(r['jam_selesai'])[:5]}"
             res += f"🔹 {r['tanggal']} ({jam_info}): {r['catatan']}\n"
         
-        res += "\nNanti aku ingetin 30 menit & 15 menit sebelumnya ya Mas! 🥰"
+        res += "\nPengingat otomatis akan dikirim 30 menit & 15 menit sebelumnya."
         await update.message.reply_text(res, reply_markup=get_main_keyboard())
     except Exception as e:
         logger.error(f"Error info_jadwal_quick: {e}")
-        await update.message.reply_text("Ada kendala saat membuka buku agenda Sayang.")
+        await update.message.reply_text("Ada kendala teknis saat mengambil data agenda.")
 
 async def gajian(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -523,17 +622,17 @@ async def gajian(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tabungan = int(nominal * 0.2)
 
         response = (
-            f"Alhamdulillah, uang gaji Rp {nominal:,} sudah aku pos-poskan dengan rapi ya Mas! 🥰\n\n"
+            f"Alokasi anggaran gaji Rp {nominal:,} telah berhasil diatur:\n\n"
             f"📦 Kebutuhan Pokok (50%): Rp {kebutuhan:,}\n"
             f"🎮 Hiburan & Jajan (30%): Rp {keinginan:,}\n"
-            f"💰 Tabungan Masa Depan (20%): Rp {tabungan:,} (Simpan rapat-rapat ya Sayang ❤️)"
+            f"💰 Tabungan (20%): Rp {tabungan:,}"
         )
         await update.message.reply_text(response, reply_markup=get_main_keyboard())
     except (IndexError, ValueError):
-        await update.message.reply_text("Formatnya begini ya Sayang: /gajian 5000000", reply_markup=get_main_keyboard())
+        await update.message.reply_text("Format penggunaan: /gajian 5000000", reply_markup=get_main_keyboard())
     except Exception as e:
         logger.error(f"Error gajian command: {e}")
-        await update.message.reply_text("Terjadi kesalahan sistem saat menyimpan gaji Mas.")
+        await update.message.reply_text("Terjadi kesalahan sistem saat menyimpan alokasi gaji.")
 
 async def catat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import psycopg2.extras
@@ -543,7 +642,7 @@ async def catat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keterangan = " ".join(context.args[2:])
         
         if tipe not in ["kebutuhan", "keinginan"]:
-            await update.message.reply_text("Pilihannya: 'kebutuhan' atau 'keinginan' ya Mas.\nContoh: /catat keinginan 25000 kopi susu", reply_markup=get_main_keyboard())
+            await update.message.reply_text("Format: /catat [kebutuhan|keinginan] [nominal] [keterangan]\nContoh: /catat keinginan 25000 kopi susu", reply_markup=get_main_keyboard())
             return
 
         catat_pengeluaran(tipe, nominal, keterangan)
@@ -560,29 +659,29 @@ async def catat(update: Update, context: ContextTypes.DEFAULT_TYPE):
                            COALESCE(SUM(t.jumlah), 0) as terpakai
                     FROM budget b 
                     LEFT JOIN transaksi t ON t.kategori_id = b.kategori_id 
-                         AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
-                         AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
-                         AND t.tipe = 'pengeluaran'
+                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
+                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                          AND t.tipe = 'pengeluaran'
                     WHERE b.kategori_id = %s AND b.bulan = %s AND b.tahun = %s
                     GROUP BY b.limit_nominal
                 """, (kat_id, now.month, now.year))
                 row = c.fetchone()
         
-        response = f"Sudah aku catat ya Mas: Rp {nominal:,} untuk {keterangan} ({kat_nama})."
+        response = f"Pengeluaran berhasil dicatat: Rp {nominal:,} untuk {keterangan} ({kat_nama})."
         if row:
             limit = int(row['limit_nominal'])
             terpakai = int(row['terpakai'])
             sisa = limit - terpakai
             if sisa < 0:
-                response += f"\n\n🥺 Sayang, pos {kat_nama} kita sudah defisit minus Rp {abs(sisa):,} lho. Yuk tahan jajan dulu demi tabungan kita ya Mas!"
+                response += f"\n\n⚠️ Peringatan: Pos {kat_nama} sudah mengalami defisit sebesar Rp {abs(sisa):,}."
             elif sisa < (limit * 0.2):
-                response += f"\n\n⚠️ Sisa pos {kat_nama} tinggal Rp {sisa:,} nih Mas. Dihemat-hemat ya Sayang!"
+                response += f"\n\n⚠️ Perhatian: Sisa pos {kat_nama} tinggal Rp {sisa:,} (di bawah 20% limit)."
             else:
-                response += f"\nSisa jatah pos ini masih aman: Rp {sisa:,} 😊"
+                response += f"\nSisa pos ini: Rp {sisa:,}."
 
         await update.message.reply_text(response, reply_markup=get_main_keyboard())
     except (IndexError, ValueError):
-        await update.message.reply_text("Formatnya begini Mas: /catat keinginan 20000 makan bakso", reply_markup=get_main_keyboard())
+        await update.message.reply_text("Format: /catat [kebutuhan|keinginan] [nominal] [keterangan]\nContoh: /catat keinginan 20000 makan bakso", reply_markup=get_main_keyboard())
 
 async def subsidi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -591,9 +690,9 @@ async def subsidi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError
         
         catat_subsidi(keterangan)
-        await update.message.reply_text(f"Alhamdulillah, rezeki {keterangan} sudah aku catat! Pengeluaran kita jadi lebih irit Sayang. ❤️", reply_markup=get_main_keyboard())
+        await update.message.reply_text(f"Subsidi/bantuan '{keterangan}' telah berhasil dicatat.", reply_markup=get_main_keyboard())
     except ValueError:
-        await update.message.reply_text("Tulis keterangannya Mas: /subsidi beras 5kg dari orang tua", reply_markup=get_main_keyboard())
+        await update.message.reply_text("Format penggunaan: /subsidi [keterangan]\nContoh: /subsidi beras 5kg dari kantor", reply_markup=get_main_keyboard())
 
 async def rekap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import psycopg2.extras
@@ -607,19 +706,19 @@ async def rekap(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     FROM budget b 
                     JOIN kategori k ON b.kategori_id = k.id 
                     LEFT JOIN transaksi t ON t.kategori_id = k.id 
-                         AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
-                         AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
-                         AND t.tipe = 'pengeluaran'
+                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
+                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                          AND t.tipe = 'pengeluaran'
                     WHERE b.bulan = %s AND b.tahun = %s
                     GROUP BY k.nama, b.limit_nominal
                 """, (now.month, now.year))
                 rows = c.fetchall()
         
         if not rows:
-            await update.message.reply_text("Bulan ini belum ada pos anggaran yang diset Mas. Ketik /gajian [nominal] atau bilang di chat ya Sayang.", reply_markup=get_main_keyboard())
+            await update.message.reply_text("Bulan ini belum ada pos anggaran yang diatur. Silakan atur dengan /gajian [nominal] atau kirim pesan di chat.", reply_markup=get_main_keyboard())
             return
             
-        response = f"📊 Rekap Buku Catatan Keluarga ({now.strftime('%B %Y')}):\n\n"
+        response = f"📊 Rekap Keuangan ({now.strftime('%B %Y')}):\n\n"
         total_sisa = 0
         for r in rows:
             limit = int(r['limit_nominal'])
@@ -628,11 +727,11 @@ async def rekap(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_sisa += sisa
             response += f"🔹 Pos {r['nama']}:\n   Jatah: Rp {limit:,} | Terpakai: Rp {terpakai:,}\n   Sisa: Rp {sisa:,}\n\n"
             
-        response += f"💰 Total Sisa Uang: Rp {total_sisa:,}\nTetap semangat dan jaga kesehatan ya Sayang! 🥰"
+        response += f"💰 Total Sisa Anggaran: Rp {total_sisa:,}"
         await update.message.reply_text(response.strip(), reply_markup=get_main_keyboard())
     except Exception as e:
         logger.error(f"Error rekap: {e}")
-        await update.message.reply_text("Maaf Mas, buku catatan sedang tidak bisa dibuka.")
+        await update.message.reply_text("Maaf, data rekap sedang tidak dapat diakses.")
 
 async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -641,9 +740,9 @@ async def agenda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keterangan = " ".join(context.args[2:])
         
         tambah_jadwal_agenda(tanggal, jam, keterangan)
-        await update.message.reply_text(f"📅 Sudah aku simpan di jadwal ya Mas!\nTanggal: {tanggal} pukul {jam}\nAcara: {keterangan}\nTenang, nanti aku ingetin tepat waktu ya Sayang! 🥰", reply_markup=get_main_keyboard())
+        await update.message.reply_text(f"📅 Agenda berhasil ditambahkan!\nTanggal: {tanggal} pukul {jam}\nAcara: {keterangan}\nPengingat akan dikirim tepat waktu.", reply_markup=get_main_keyboard())
     except (IndexError, ValueError):
-        await update.message.reply_text("Formatnya begini Sayang: /agenda YYYY-MM-DD HH:MM keterangan", reply_markup=get_main_keyboard())
+        await update.message.reply_text("Format penggunaan: /agenda YYYY-MM-DD HH:MM keterangan", reply_markup=get_main_keyboard())
 
 def send_whatsapp_reminder(message: str):
     """Sends proactive reminder to WhatsApp group via the Baileys gateway API."""
@@ -686,7 +785,7 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
                 reminder_key_30 = (jadwal_id, "30m", today_str)
                 if 28.0 <= minutes_diff <= 31.0 and reminder_key_30 not in sent_reminders:
                     sent_reminders.add(reminder_key_30)
-                    msg_30 = f"🔔 [30 MENIT LAGI Mas!]\nAda acara: {row['catatan']}\nJam: {jam_str}\nSiap-siap dari sekarang ya Sayang, jangan sampai terburu-buru! 🥰"
+                    msg_30 = f"🔔 [PENGINGAT 30 MENIT LAGI]\nAgenda: {row['catatan']}\nWaktu: {jam_str}\nMohon bersiap-siap."
                     if chat_id:
                         await context.bot.send_message(chat_id=chat_id, text=msg_30)
                     send_whatsapp_reminder(msg_30)
@@ -695,7 +794,7 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
                 reminder_key_15 = (jadwal_id, "15m", today_str)
                 if 13.0 <= minutes_diff <= 16.0 and reminder_key_15 not in sent_reminders:
                     sent_reminders.add(reminder_key_15)
-                    msg_15 = f"🔔 [15 MENIT LAGI!]\nAyo siap-siap Sayang, agenda {row['catatan']} jam {jam_str} sebentar lagi mulai! Semangat ya Mas! ❤️"
+                    msg_15 = f"🔔 [PENGINGAT 15 MENIT LAGI]\nAgenda: {row['catatan']}\nWaktu: {jam_str}\nAgenda akan segera dimulai."
                     if chat_id:
                         await context.bot.send_message(chat_id=chat_id, text=msg_15)
                     send_whatsapp_reminder(msg_15)
@@ -715,7 +814,7 @@ class WhatsAppWebhookHandler(BaseHTTPRequestHandler):
                 data = json.loads(body)
                 user_text = data.get('text', '')
                 group_id = data.get('group_id', 'wa_group')
-                reply = generate_wife_response(user_text, session_id=group_id)
+                reply = generate_assistant_response(user_text, session_id=group_id)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
@@ -745,6 +844,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("gajian", gajian))
+    app.add_handler(CommandHandler("saldo", info_budget_quick))
     app.add_handler(CommandHandler("catat", catat))
     app.add_handler(CommandHandler("subsidi", subsidi))
     app.add_handler(CommandHandler("rekap", rekap))

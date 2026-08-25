@@ -7,7 +7,14 @@ __pycache__/
 # Node.js
 whatsapp_bot/node_modules/
 whatsapp_bot/auth_info_baileys/
+whatsapp_bot/auth_session/
 whatsapp_bot/package-lock.json
+
+# Test & Evaluation files
+promptfooconfig.yaml
+prompt.json
+run_eval.py
+eval_results.json
 
 # IDE and temporary files
 .agents/

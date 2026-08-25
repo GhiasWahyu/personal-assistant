@@ -122,22 +122,24 @@ def get_kategori_id(conn, nama: str, tipe: str, jenis_budget: str) -> str:
 
 def hitung_pembagian_anggaran_bulat(total_nominal: int):
     """
-    Membagi anggaran 50/30/20 dengan pembulatan rapi ke ribuan rupiah terdekat (clean round number)
-    agar praktis dan tidak menghasilkan pecahan ratusan/puluhan rupiah.
+    Membagi anggaran 50/30/20 dengan pembulatan rapi sebisa mungkin ke ribuan rupiah terdekat,
+    namun MENJAMIN jumlah total (kebutuhan + keinginan + tabungan) SAMA PERSIS dengan total_nominal
+    (100% presisi matematis: tidak menambah atau mengurangi nominal 1 rupiah pun).
     """
     total_nominal = int(total_nominal)
     if total_nominal >= 10000:
         kebutuhan = round((total_nominal * 0.5) / 1000) * 1000
         keinginan = round((total_nominal * 0.3) / 1000) * 1000
-        tabungan = round((total_nominal * 0.2) / 1000) * 1000
-    elif total_nominal >= 1000:
-        kebutuhan = round((total_nominal * 0.5) / 100) * 100
-        keinginan = round((total_nominal * 0.3) / 100) * 100
-        tabungan = round((total_nominal * 0.2) / 100) * 100
+        # Tabungan otomatis menampung sisa persisnya agar total akumulasi tepat 100% sama dengan total_nominal
+        tabungan = total_nominal - kebutuhan - keinginan
+        if tabungan < 0:
+            kebutuhan = int(total_nominal * 0.5)
+            keinginan = int(total_nominal * 0.3)
+            tabungan = total_nominal - kebutuhan - keinginan
     else:
         kebutuhan = int(total_nominal * 0.5)
         keinginan = int(total_nominal * 0.3)
-        tabungan = int(total_nominal * 0.2)
+        tabungan = total_nominal - kebutuhan - keinginan
     return kebutuhan, keinginan, tabungan
 
 # --- DATABASE TOOLS FOR GEMINI FUNCTION CALLING ---

@@ -69,14 +69,19 @@ system_instruction = (
 # --- DATABASE CONNECTION MANAGER ---
 @contextmanager
 def get_db():
-    """Context manager for database connections to guarantee zero connection leaks."""
+    """Context manager for database connections to guarantee zero connection leaks and reliable cloud pooling."""
     import psycopg2
     import psycopg2.extras
-    conn = psycopg2.connect(DB_URL)
+    db_url_clean = DB_URL
+    if "sslmode=" not in db_url_clean:
+        sep = "&" if "?" in db_url_clean else "?"
+        db_url_clean += f"{sep}sslmode=require"
+    conn = psycopg2.connect(db_url_clean, connect_timeout=15)
     try:
         yield conn
     finally:
-        conn.close()
+        if conn and not conn.closed:
+            conn.close()
 
 # Helper to save chat_id so background jobs know who to message
 def save_chat_id(chat_id):

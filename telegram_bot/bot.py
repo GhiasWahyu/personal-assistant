@@ -669,74 +669,136 @@ def get_progress_bar(pct: float, length: int = 8) -> str:
     return f"[{bar}] {pct:.1f}%"
 
 def generate_expense_chart_image(budget_rows, now=None):
-    """Menghasilkan grafik visual donut chart persentase pengeluaran & tabungan bergaya modern."""
+    """Menghasilkan grafik visual FinTech Dashboard Card: Donut breakdown pengeluaran nyata + Progress bar per pos anggaran."""
     try:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
 
         if not now:
             now = datetime.datetime.now()
 
-        labels = []
-        values = []
-        colors = []
+        keb_row = next((r for r in budget_rows if 'kebutuhan' in r['nama'].lower()), None)
+        keinginan_row = next((r for r in budget_rows if 'keinginan' in r['nama'].lower() or 'hiburan' in r['nama'].lower()), None)
+        tab_row = next((r for r in budget_rows if 'tabungan' in r['nama'].lower()), None)
 
-        palette = {
-            'kebutuhan': '#2ecc71',
-            'keinginan': '#f39c12',
-            'tabungan': '#3498db',
-            'sisa_kebutuhan': '#27ae60',
-            'sisa_keinginan': '#d35400'
-        }
+        keb_terpakai = int(keb_row['terpakai']) if keb_row else 0
+        keb_limit = int(keb_row['limit_nominal']) if keb_row else 0
+        keinginan_terpakai = int(keinginan_row['terpakai']) if keinginan_row else 0
+        keinginan_limit = int(keinginan_row['limit_nominal']) if keinginan_row else 0
+        tab_limit = int(tab_row['limit_nominal']) if tab_row else 0
+        tab_terpakai = int(tab_row['terpakai']) if tab_row else 0
 
-        for r in budget_rows:
-            nama = r['nama']
-            limit = int(r['limit_nominal'])
-            terpakai = int(r['terpakai'])
-            sisa = max(0, limit - terpakai)
+        total_spent = keb_terpakai + keinginan_terpakai + tab_terpakai
+        total_budget = keb_limit + keinginan_limit + tab_limit
+
+        # Layout: Modern FinTech Card
+        fig = plt.figure(figsize=(9, 5.2), facecolor='#0f172a')
+        gs = fig.add_gridspec(2, 2, width_ratios=[1.0, 1.3], height_ratios=[0.25, 1], hspace=0.25, wspace=0.3)
+
+        # 1. Header Title
+        ax_head = fig.add_subplot(gs[0, :])
+        ax_head.set_facecolor('#0f172a')
+        ax_head.axis('off')
+        ax_head.text(0.0, 0.7, 'Dashboard Anggaran & Pengeluaran', color='#f8fafc', fontsize=15, weight='bold')
+        ax_head.text(0.0, 0.15, f"Siklus Gajian (25 ke 24) • Total Budget: Rp {total_budget:,}", color='#94a3b8', fontsize=10.5)
+
+        # 2. Left: Donut Chart of Actual Expense Breakdown (Kebutuhan vs Keinginan)
+        ax_pie = fig.add_subplot(gs[1, 0])
+        ax_pie.set_facecolor('#0f172a')
+
+        if total_spent > 0:
+            sizes = []
+            pie_colors = []
+            pie_labels = []
+
+            if keb_terpakai > 0:
+                sizes.append(keb_terpakai)
+                pie_colors.append('#10b981') # Emerald
+                pie_labels.append(f'Kebutuhan ({keb_terpakai/total_spent*100:.0f}%)')
+            if keinginan_terpakai > 0:
+                sizes.append(keinginan_terpakai)
+                pie_colors.append('#f59e0b') # Amber
+                pie_labels.append(f'Keinginan ({keinginan_terpakai/total_spent*100:.0f}%)')
+            if tab_terpakai > 0:
+                sizes.append(tab_terpakai)
+                pie_colors.append('#ef4444')
+                pie_labels.append('Tabungan Terpakai')
+
+            wedges, texts, autotexts = ax_pie.pie(
+                sizes,
+                autopct='%1.1f%%',
+                startangle=90,
+                colors=pie_colors,
+                pctdistance=0.75,
+                wedgeprops=dict(width=0.38, edgecolor='#0f172a', linewidth=3)
+            )
+            for at in autotexts:
+                at.set_color('#ffffff')
+                at.set_fontsize(10)
+                at.set_weight('bold')
+
+            # Center label in donut
+            ax_pie.text(0, 0.12, 'Total Keluar', color='#94a3b8', fontsize=8.5, ha='center')
+            ax_pie.text(0, -0.15, f'Rp {total_spent:,}', color='#f8fafc', fontsize=11.5, weight='bold', ha='center')
+            ax_pie.legend(wedges, pie_labels, loc='lower center', bbox_to_anchor=(0.5, -0.15),
+                          ncol=2, frameon=False, fontsize=8.5, labelcolor='#cbd5e1')
+        else:
+            # If no expense yet, show full budget allocation donut
+            sizes = [keb_limit, keinginan_limit, tab_limit]
+            colors = ['#10b981', '#f59e0b', '#38bdf8']
+            wedges, _, _ = ax_pie.pie(
+                sizes,
+                autopct='%1.0f%%',
+                startangle=90,
+                colors=colors,
+                pctdistance=0.75,
+                wedgeprops=dict(width=0.38, edgecolor='#0f172a', linewidth=3)
+            )
+            ax_pie.text(0, 0.12, 'Pengeluaran', color='#94a3b8', fontsize=8.5, ha='center')
+            ax_pie.text(0, -0.15, 'Rp 0', color='#f8fafc', fontsize=12, weight='bold', ha='center')
+            ax_pie.legend(['Kebutuhan', 'Keinginan', 'Tabungan'], loc='lower center', bbox_to_anchor=(0.5, -0.15),
+                          ncol=3, frameon=False, fontsize=8, labelcolor='#cbd5e1')
+
+        # 3. Right: Horizontal Progress Bars for each category
+        ax_bar = fig.add_subplot(gs[1, 1])
+        ax_bar.set_facecolor('#0f172a')
+        ax_bar.axis('off')
+
+        categories = [
+            {'name': 'Kebutuhan Pokok (50%)', 'spent': keb_terpakai, 'limit': keb_limit, 'color': '#10b981'},
+            {'name': 'Keinginan & Hiburan (30%)', 'spent': keinginan_terpakai, 'limit': keinginan_limit, 'color': '#f59e0b'},
+            {'name': 'Tabungan (20% Target)', 'spent': tab_terpakai, 'limit': tab_limit, 'color': '#38bdf8'}
+        ]
+
+        y_positions = [0.82, 0.46, 0.10]
+        for i, cat in enumerate(categories):
+            y = y_positions[i]
+            pct = (cat['spent'] / cat['limit'] * 100) if cat['limit'] > 0 else 0
+            sisa = cat['limit'] - cat['spent']
             
-            if terpakai > 0:
-                labels.append(f"{nama} (Terpakai)\nRp {terpakai:,}")
-                values.append(terpakai)
-                colors.append('#e74c3c' if 'keinginan' in nama.lower() else '#e67e22')
-                
-            if 'tabungan' in nama.lower():
-                labels.append(f"Tabungan (Aman)\nRp {sisa:,}")
-                values.append(sisa)
-                colors.append('#3498db')
-            elif sisa > 0:
-                labels.append(f"Sisa {nama}\nRp {sisa:,}")
-                values.append(sisa)
-                colors.append('#2ecc71' if 'kebutuhan' in nama.lower() else '#f1c40f')
-
-        if not values or sum(values) == 0:
-            return None
-
-        fig, ax = plt.subplots(figsize=(7, 5), facecolor='#1e272e')
-        ax.set_facecolor('#1e272e')
-
-        wedges, texts, autotexts = ax.pie(
-            values,
-            labels=labels,
-            autopct='%1.1f%%',
-            startangle=140,
-            colors=colors,
-            textprops=dict(color='white', fontsize=9, weight='bold'),
-            wedgeprops=dict(width=0.45, edgecolor='#1e272e', linewidth=2),
-            pctdistance=0.75
-        )
-
-        for autotext in autotexts:
-            autotext.set_color('#ffffff')
-            autotext.set_fontsize(10)
-            autotext.set_weight('bold')
-
-        plt.title(f"Proporsi Pengeluaran & Anggaran\nSiklus Gajian ({now.strftime('%B %Y')})", color='#ffffff', fontsize=12, pad=15, weight='bold')
-        plt.tight_layout()
+            # Header text
+            ax_bar.text(0.0, y + 0.16, cat['name'], color='#f8fafc', fontsize=10.5, weight='bold')
+            ax_bar.text(1.0, y + 0.16, f"Rp {cat['spent']:,} / Rp {cat['limit']:,}", color='#94a3b8', fontsize=9.5, ha='right')
+            
+            # Background bar
+            bg_bar = patches.FancyBboxPatch((0.0, y), 1.0, 0.08, boxstyle='round,pad=0.015', facecolor='#1e293b', edgecolor='none')
+            ax_bar.add_patch(bg_bar)
+            
+            # Fill bar
+            if cat['spent'] > 0:
+                fill_w = max(0.03, min(1.0, pct / 100))
+                fill_color = '#ef4444' if pct > 100 else cat['color']
+                fill_bar = patches.FancyBboxPatch((0.0, y), fill_w, 0.08, boxstyle='round,pad=0.015', facecolor=fill_color, edgecolor='none')
+                ax_bar.add_patch(fill_bar)
+            
+            # Footer text
+            status_sub = "100% Utuh Aman" if cat['spent'] == 0 else f"{pct:.1f}% terpakai • Sisa Rp {sisa:,}"
+            ax_bar.text(0.0, y - 0.09, status_sub, color='#64748b', fontsize=8.5)
 
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=150, facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.savefig(buf, format='png', dpi=180, facecolor='#0f172a', bbox_inches='tight')
         buf.seek(0)
         plt.close(fig)
         return buf

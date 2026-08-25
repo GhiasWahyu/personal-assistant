@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import re
+import io
 import datetime
 import logging
 import threading
@@ -142,7 +143,8 @@ def get_main_keyboard():
     """Menu tombol cepat interaktif agar ramah pengguna dan tidak perlu hafal command."""
     keyboard = [
         [KeyboardButton("📊 Rekap Keuangan & Agenda"), KeyboardButton("💰 Info Saldo & Budget")],
-        [KeyboardButton("📅 Jadwal Kerja / Agenda"), KeyboardButton("💡 Tips Hemat & Finansial")]
+        [KeyboardButton("📈 Grafik Pengeluaran"), KeyboardButton("📅 Jadwal Kerja / Agenda")],
+        [KeyboardButton("💡 Tips Hemat & Finansial")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
@@ -640,6 +642,9 @@ async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif user_text in ["💰 Info Saldo & Budget", "💰 Info Sisa Budget", "💰 Info Saldo"]:
         await info_budget_quick(update, context)
         return
+    elif user_text in ["📈 Grafik Pengeluaran", "📈 Grafik", "/grafik", "grafik", "grafik pengeluaran"]:
+        await kirim_grafik_pengeluaran(update, context)
+        return
     elif user_text == "📅 Jadwal Kerja / Agenda":
         await info_jadwal_quick(update, context)
         return
@@ -648,6 +653,131 @@ async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = generate_assistant_response(user_text, session_id=chat_id)
     await update.message.reply_text(reply, reply_markup=get_main_keyboard())
+
+def get_progress_bar(pct: float, length: int = 8) -> str:
+    """Mengubah persentase menjadi visual bar emoji aesthetic (misal: [🟩⬜⬜⬜⬜⬜⬜⬜] 12.5%)."""
+    pct = max(0.0, min(100.0, pct))
+    filled = int(round(pct / 100 * length))
+    filled = min(length, max(0, filled))
+    
+    if pct >= 100.0:
+        bar = "🟥" * filled + "⬜" * (length - filled)
+    elif pct >= 75.0:
+        bar = "🟨" * filled + "⬜" * (length - filled)
+    else:
+        bar = "🟩" * filled + "⬜" * (length - filled)
+    return f"[{bar}] {pct:.1f}%"
+
+def generate_expense_chart_image(budget_rows, now=None):
+    """Menghasilkan grafik visual donut chart persentase pengeluaran & tabungan bergaya modern."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        if not now:
+            now = datetime.datetime.now()
+
+        labels = []
+        values = []
+        colors = []
+
+        palette = {
+            'kebutuhan': '#2ecc71',
+            'keinginan': '#f39c12',
+            'tabungan': '#3498db',
+            'sisa_kebutuhan': '#27ae60',
+            'sisa_keinginan': '#d35400'
+        }
+
+        for r in budget_rows:
+            nama = r['nama']
+            limit = int(r['limit_nominal'])
+            terpakai = int(r['terpakai'])
+            sisa = max(0, limit - terpakai)
+            
+            if terpakai > 0:
+                labels.append(f"{nama} (Terpakai)\nRp {terpakai:,}")
+                values.append(terpakai)
+                colors.append('#e74c3c' if 'keinginan' in nama.lower() else '#e67e22')
+                
+            if 'tabungan' in nama.lower():
+                labels.append(f"Tabungan (Aman)\nRp {sisa:,}")
+                values.append(sisa)
+                colors.append('#3498db')
+            elif sisa > 0:
+                labels.append(f"Sisa {nama}\nRp {sisa:,}")
+                values.append(sisa)
+                colors.append('#2ecc71' if 'kebutuhan' in nama.lower() else '#f1c40f')
+
+        if not values or sum(values) == 0:
+            return None
+
+        fig, ax = plt.subplots(figsize=(7, 5), facecolor='#1e272e')
+        ax.set_facecolor('#1e272e')
+
+        wedges, texts, autotexts = ax.pie(
+            values,
+            labels=labels,
+            autopct='%1.1f%%',
+            startangle=140,
+            colors=colors,
+            textprops=dict(color='white', fontsize=9, weight='bold'),
+            wedgeprops=dict(width=0.45, edgecolor='#1e272e', linewidth=2),
+            pctdistance=0.75
+        )
+
+        for autotext in autotexts:
+            autotext.set_color('#ffffff')
+            autotext.set_fontsize(10)
+            autotext.set_weight('bold')
+
+        plt.title(f"Proporsi Pengeluaran & Anggaran\nSiklus Gajian ({now.strftime('%B %Y')})", color='#ffffff', fontsize=12, pad=15, weight='bold')
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=150, facecolor=fig.get_facecolor(), edgecolor='none')
+        buf.seek(0)
+        plt.close(fig)
+        return buf
+    except Exception as e:
+        logger.error(f"Error generate_expense_chart_image: {e}")
+        return None
+
+async def kirim_grafik_pengeluaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mengirim grafik visual persentase pengeluaran langsung ke Telegram."""
+    import psycopg2.extras
+    now = datetime.datetime.now()
+    try:
+        with get_db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                c.execute("""
+                    SELECT k.nama, b.limit_nominal,
+                           COALESCE(SUM(t.jumlah), 0) as terpakai
+                    FROM budget b 
+                    JOIN kategori k ON b.kategori_id = k.id 
+                    LEFT JOIN transaksi t ON t.kategori_id = k.id 
+                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
+                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                          AND t.tipe = 'pengeluaran'
+                    WHERE b.bulan = %s AND b.tahun = %s
+                    GROUP BY k.nama, b.limit_nominal
+                """, (now.month, now.year))
+                budget_rows = c.fetchall()
+
+        if not budget_rows:
+            await update.message.reply_text("Belum ada alokasi budget untuk ditampilkan grafiknya. Atur gaji dengan /gajian [nominal].", reply_markup=get_main_keyboard())
+            return
+
+        chart_buf = generate_expense_chart_image(budget_rows, now)
+        if chart_buf:
+            caption = f"📈 *Grafik Proporsi Pengeluaran & Budget*\n\n" + analisis_kesehatan_keuangan(budget_rows, now)
+            await update.message.reply_photo(photo=chart_buf, caption=caption, reply_markup=get_main_keyboard())
+        else:
+            await update.message.reply_text("Tidak dapat menghasilkan grafik. Pastikan sudah ada transaksi atau target budget.", reply_markup=get_main_keyboard())
+    except Exception as e:
+        logger.error(f"Error kirim_grafik_pengeluaran: {e}")
+        await update.message.reply_text("Maaf, terjadi kendala saat memproses grafik.", reply_markup=get_main_keyboard())
 
 def hitung_siklus_gajian(now=None):
     """Menghitung progres siklus gajian bulanan (tanggal 25 ke tanggal 24 bulan berikutnya)."""
@@ -763,14 +893,18 @@ async def info_budget_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             res += "Belum ada catatan saldo dompet.\n\n"
 
-        res += "📊 Alokasi & Sisa Budget Bulan Ini:\n"
+        res += "📊 Alokasi & Pengeluaran (Siklus Gajian):\n"
         if budget_rows:
             for r in budget_rows:
                 limit = int(r['limit_nominal'])
                 terpakai = int(r['terpakai'])
                 sisa = limit - terpakai
-                res += f"📌 {r['nama']}: Sisa Rp {sisa:,} (Limit: Rp {limit:,})\n"
-            res += "\n" + analisis_kesehatan_keuangan(budget_rows, now)
+                pct_used = (terpakai / limit * 100) if limit > 0 else 0
+                bar = get_progress_bar(pct_used)
+                
+                icon = "📦" if "kebutuhan" in r['nama'].lower() else ("🎮" if "keinginan" in r['nama'].lower() or "hiburan" in r['nama'].lower() else "💰")
+                res += f"{icon} {r['nama']}:\n   {bar} (Terpakai: Rp {terpakai:,} / Limit: Rp {limit:,})\n   Sisa: Rp {sisa:,}\n\n"
+            res += analisis_kesehatan_keuangan(budget_rows, now)
         else:
             res += "Belum ada alokasi budget bulan ini. (Ketik: /gajian [nominal] atau chat langsung).\n"
 
@@ -1046,6 +1180,7 @@ def main():
             app.add_handler(CommandHandler("catat", catat))
             app.add_handler(CommandHandler("subsidi", subsidi))
             app.add_handler(CommandHandler("rekap", rekap))
+            app.add_handler(CommandHandler("grafik", kirim_grafik_pengeluaran))
             app.add_handler(CommandHandler("agenda", agenda))
 
             # Handler for normal text messages (chatting with AI)

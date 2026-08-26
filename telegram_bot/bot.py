@@ -93,6 +93,11 @@ system_instruction = (
     "\n\nPENCARIAN WEB & LIVE INFO AGENT:\n"
     "1. Kamu dapat mencari informasi live dan terkini di internet (misal: prakiraan cuaca hari ini, info lalu lintas, harga tiket/barang, promo, rekomendasi tempat makan/belanja sesuai budget) dengan memanggil tool `cari_informasi_web`.\n"
     "2. Gunakan hasil pencarian web terkini untuk memberikan jawaban dan rekomendasi yang akurat, faktual, dan kontekstual.\n"
+    "\n\nKEMAMPUAN MULTIMODAL LENGKAP (FOTO/OCR STRUK, PESAN SUARA/AUDIO, DOKUMEN PDF/WORD/CSV, VIDEO):\n"
+    "1. FOTO STRUK BELANJA & TRANSFER M-BANKING: Ketika pengguna mengirim foto struk (Indomaret, Alfamart, restoran, SPBU, kafe) atau screenshot transfer rekening/e-wallet, BACA DAN EKSTRAK nominal total, nama toko/merchant, tanggal, serta rincian barang, lalu LANGSUNG PANGGIL TOOL `catat_pengeluaran` / `transfer_dana` / `catat_pemasukan` secara otomatis!\n"
+    "2. PESAN SUARA (VOICE NOTE): Ketika menerima audio/voice note bahasa Indonesia, dengarkan dengan cermat, pahami maksudnya, dan eksekusi pencatatan transaksi/agenda atau jawab pertanyaannya secara tepat.\n"
+    "3. DOKUMEN (PDF SKRIPSI, JURNAL IEEE, CSV, LAPORAN): Baca seluruh isi dokumen, berikan ringkasan eksekutif, analisis metodologi, tinjau kajian pustaka, atau diskusikan sesuai instruksi pengguna.\n"
+    "4. GAMBAR / DIAGRAM / FLOWCHART / GRAFIK: Jelaskan alur kerja sistem, logika algoritma, atau bantu interpretasi grafik hasil pengujian.\n"
     "\n\nBATASAN RUANG LINGKUP & PERAN UTAMA (4 PILAR UTAMA):\n"
     "1. Peranmu adalah sebagai ASISTEN PRIBADI CERDAS, SEKRETARIS, BENDAHARA, & ACADEMIC/THESIS ADVISOR bagi Mas Ghias (mahasiswa tingkat akhir yang sedang magang sambil menyelesaikan skripsi/jurnal).\n"
     "2. Tugasmu melayani 4 ranah utama secara mendalam dan profesional:\n"
@@ -754,8 +759,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
 
-def generate_assistant_response(user_text: str, session_id: str = "default") -> str:
-    """Core AI brain to generate responses for both Telegram and WhatsApp channels."""
+def generate_assistant_response(user_text: str, session_id: str = "default", media_parts: list = None) -> str:
+    """Core AI brain to generate responses for Telegram (text/photo/voice/doc/video) and WhatsApp channels."""
     try:
         db_context = get_database_summary()
 
@@ -771,14 +776,19 @@ def generate_assistant_response(user_text: str, session_id: str = "default") -> 
         prompt_with_context = (
             f"Konteks Data Nyata Database:\n{db_context}\n"
             f"{history_context}\n"
-            f"Pesan Pengguna: {user_text}"
+            f"Pesan/Instruksi Pengguna: {user_text}"
         )
+
+        contents = []
+        if media_parts:
+            contents.extend(media_parts)
+        contents.append(prompt_with_context)
 
         MODELS_TO_TRY = [
             os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
-            "gemini-3.5-flash-lite",
-            "gemini-3.7-flash",
             "gemini-3.5-flash",
+            "gemini-3.7-flash",
+            "gemini-3.5-flash-lite",
             "gemini-flash-latest"
         ]
 
@@ -788,7 +798,7 @@ def generate_assistant_response(user_text: str, session_id: str = "default") -> 
             try:
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=prompt_with_context,
+                    contents=contents,
                     config=types.GenerateContentConfig(
                         tools=[
                             atur_anggaran_gajian, catat_pemasukan, catat_pengeluaran, transfer_dana, 
@@ -810,7 +820,7 @@ def generate_assistant_response(user_text: str, session_id: str = "default") -> 
         if not response and last_err:
             raise last_err
         
-        reply = response.text if response.text else "Sudah berhasil dicatat dan disimpan ke database. Ada hal lain yang bisa dibantu?"
+        reply = response.text if response.text else "Sudah berhasil diproses dan disimpan. Ada hal lain yang bisa dibantu?"
         
         # Clean formatting safely without deleting text content
         reply = reply.replace("**", "").replace("*", "").replace("#", "")
@@ -851,6 +861,103 @@ async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = generate_assistant_response(user_text, session_id=chat_id)
     await update.message.reply_text(reply, reply_markup=get_main_keyboard())
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memproses gambar foto struk belanja, screenshot m-banking, diagram skripsi, atau foto catatan."""
+    chat_id = str(update.message.chat_id)
+    save_chat_id(update.message.chat_id)
+    try:
+        photo = update.message.photo[-1] # Resolusi tertinggi
+        file = await context.bot.get_file(photo.file_id)
+        file_bytes = await file.download_as_bytearray()
+
+        caption = update.message.caption or (
+            "Tolong periksa dan analisis gambar/foto ini. "
+            "Jika ini adalah foto struk belanjaan, tiket, atau screenshot transfer m-Banking/e-wallet, "
+            "BACA total nominal, nama toko/merchant, tanggal, serta rinciannya, lalu LANGSUNG CATAT ke sistem database (panggil tool catat_pengeluaran / transfer_dana / catat_pemasukan)!"
+        )
+
+        media_part = types.Part.from_bytes(data=bytes(file_bytes), mime_type="image/jpeg")
+        reply = generate_assistant_response(caption, session_id=chat_id, media_parts=[media_part])
+        await update.message.reply_text(reply, reply_markup=get_main_keyboard())
+    except Exception as e:
+        logger.error(f"Error handle_photo: {e}")
+        await update.message.reply_text("Maaf, terjadi kendala saat memproses gambar. Mohon coba kirim ulang foto struk/gambarnya.")
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memproses pesan suara (Voice Note / Audio) secara native dan mengeksekusi instruksi pengguna."""
+    chat_id = str(update.message.chat_id)
+    save_chat_id(update.message.chat_id)
+    try:
+        voice = update.message.voice or update.message.audio
+        file = await context.bot.get_file(voice.file_id)
+        file_bytes = await file.download_as_bytearray()
+
+        mime_type = getattr(voice, 'mime_type', 'audio/ogg')
+        if not mime_type or "ogg" in mime_type:
+            mime_type = "audio/ogg"
+
+        prompt = (
+            "Pesan Suara Pengguna: Dengarkan rekaman suara bahasa Indonesia ini dengan cermat. "
+            "Pahami setiap instruksi, pertanyaan, atau catatan transaksi/agenda yang disampaikan, "
+            "lalu jalankan fungsi pencatatan yang sesuai ke database atau jawab secara lengkap."
+        )
+
+        media_part = types.Part.from_bytes(data=bytes(file_bytes), mime_type=mime_type)
+        reply = generate_assistant_response(prompt, session_id=chat_id, media_parts=[media_part])
+        await update.message.reply_text(reply, reply_markup=get_main_keyboard())
+    except Exception as e:
+        logger.error(f"Error handle_voice: {e}")
+        await update.message.reply_text("Maaf, terjadi kendala saat memproses pesan suara. Mohon coba kirim ulang.")
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Membaca dokumen (PDF skripsi, paper jurnal, laporan keuangan CSV/TXT, atau gambar dokumen)."""
+    chat_id = str(update.message.chat_id)
+    save_chat_id(update.message.chat_id)
+    try:
+        doc = update.message.document
+        file_name = doc.file_name or "document"
+        file_mime = doc.mime_type or "application/octet-stream"
+
+        file = await context.bot.get_file(doc.file_id)
+        file_bytes = await file.download_as_bytearray()
+
+        caption = update.message.caption or f"Tolong baca, pelajari, dan analisis isi dokumen '{file_name}' ini secara mendalam."
+
+        media_parts = []
+        if "pdf" in file_mime.lower() or file_name.lower().endswith(".pdf"):
+            media_parts.append(types.Part.from_bytes(data=bytes(file_bytes), mime_type="application/pdf"))
+        elif "image" in file_mime.lower() or file_name.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            media_parts.append(types.Part.from_bytes(data=bytes(file_bytes), mime_type="image/jpeg"))
+        elif file_name.lower().endswith(('.txt', '.csv', '.json', '.md', '.py', '.sql')):
+            text_content = bytes(file_bytes).decode('utf-8', errors='ignore')
+            caption += f"\n\n[Isi Teks File '{file_name}']:\n{text_content[:25000]}"
+        else:
+            media_parts.append(types.Part.from_bytes(data=bytes(file_bytes), mime_type=file_mime))
+
+        reply = generate_assistant_response(caption, session_id=chat_id, media_parts=media_parts)
+        await update.message.reply_text(reply, reply_markup=get_main_keyboard())
+    except Exception as e:
+        logger.error(f"Error handle_document: {e}")
+        await update.message.reply_text("Maaf, terjadi kendala saat membaca dokumen. Pastikan format file didukung (PDF, TXT, CSV, Gambar).")
+
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memproses file video atau video note yang dikirim pengguna."""
+    chat_id = str(update.message.chat_id)
+    save_chat_id(update.message.chat_id)
+    try:
+        video = update.message.video or update.message.video_note
+        file = await context.bot.get_file(video.file_id)
+        file_bytes = await file.download_as_bytearray()
+
+        caption = update.message.caption or "Tolong periksa dan analisis isi video ini secara ringkas dan berikan tanggapan yang relevan."
+        media_part = types.Part.from_bytes(data=bytes(file_bytes), mime_type="video/mp4")
+
+        reply = generate_assistant_response(caption, session_id=chat_id, media_parts=[media_part])
+        await update.message.reply_text(reply, reply_markup=get_main_keyboard())
+    except Exception as e:
+        logger.error(f"Error handle_video: {e}")
+        await update.message.reply_text("Maaf, terjadi kendala saat memproses video.")
 
 def get_progress_bar(pct: float, length: int = 8) -> str:
     """Mengubah persentase menjadi visual bar emoji aesthetic (misal: [🟩⬜⬜⬜⬜⬜⬜⬜] 12.5%)."""
@@ -1501,6 +1608,12 @@ def main():
             app.add_handler(CommandHandler("rekap", rekap))
             app.add_handler(CommandHandler("grafik", kirim_grafik_pengeluaran))
             app.add_handler(CommandHandler("agenda", agenda))
+
+            # Handlers for media & documents (Multimodal)
+            app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+            app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
+            app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+            app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))
 
             # Handler for normal text messages (chatting with AI)
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat))

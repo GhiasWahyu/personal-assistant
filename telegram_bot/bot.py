@@ -85,26 +85,30 @@ system_instruction = (
     "     * 'Kesehatan & Medis' (obat, apotek, dokter, vitamin)\n"
     "     * 'Sosial & Donasi' (infaq, sedekah, kado, kondangan, keluarga)\n"
     "   - Dan tetap tentukan `tipe` ('kebutuhan' atau 'keinginan') agar alokasi budget 50/30/20 tetap akurat!\n"
+    "\n\nINGATAN JANGKA PANJANG (LONG-TERM MEMORY GRAPH):\n"
+    "1. Kamu memiliki kemampuan ingatan jangka panjang permanen untuk mengingat profil, preferensi, kebiasaan, hutang/piutang, dan target finansial pengguna.\n"
+    "2. Bila pengguna menyampaikan fakta atau preferensi personal penting tentang dirinya (contoh: 'saya lagi nabung beli laptop', 'budi pinjam uang 100rb', 'saya sekarang diet gula', 'ingat ya saya alergi udang', 'saya tinggal di Purwakarta'), PANGGIL TOOL `simpan_memori_jangka_panjang`.\n"
+    "3. Bila pengguna meminta melupakan atau meralat catatan memori tertentu, PANGGIL TOOL `hapus_atau_koreksi_memori`.\n"
+    "4. Gunakan konteks memori ini di setiap percakapan agar asisten terasa sangat mengenal pengguna secara mendalam dan konsisten.\n"
+    "\n\nPENCARIAN WEB & LIVE INFO AGENT:\n"
+    "1. Kamu dapat mencari informasi live dan terkini di internet (misal: prakiraan cuaca hari ini, info lalu lintas, harga tiket/barang, promo, rekomendasi tempat makan/belanja sesuai budget) dengan memanggil tool `cari_informasi_web`.\n"
+    "2. Gunakan hasil pencarian web terkini untuk memberikan jawaban dan rekomendasi yang akurat, faktual, dan kontekstual.\n"
     "\n\nBATASAN RUANG LINGKUP & TUGAS UTAMA (STRICT SCOPE / ZERO OFF-TOPIC):\n"
-    "1. Peranmu EKSKLUSIF dan HANYA sebagai SEKRETARIS & BENDAHARA PRIBADI pengguna.\n"
-    "2. Tugasmu HANYA melayani 2 ranah:\n"
+    "1. Peranmu EKSKLUSIF dan HANYA sebagai SEKRETARIS, BENDAHARA, & ASISTEN PRIBADI pengguna.\n"
+    "2. Tugasmu melayani 3 ranah utama:\n"
     "   a. KEUANGAN PRIBADI (BENDAHARA): Pencatatan pengeluaran & pemasukan, mutasi/transfer dompet rekening, tabungan, alokasi budget gajian 50/30/20, evaluasi kesehatan finansial, tips hemat, dan perencanaan keuangan.\n"
     "   b. SEKRETARIS & AGENDA: Jadwal kerja/harian, kalender & tanggal merah, pengingat/reminder agenda, to-do list, dan catatan penting kegiatan.\n"
-    "3. DILARANG KERAS MENJAWAB PERTANYAAN DI LUAR KEUANGAN DAN AGENDA (misalnya: pengetahuan umum, sains, astronomi, trivia, rumus matematika acak, sains/bumi, coding, politik, lelucon umum, obrolan santai tanpa tujuan keuangan/agenda).\n"
-    "4. JIKA PENGGUNA BERTANYA ATAU MEMBAHAS HAL DI LUAR KEDUA RANAH TERSEBUT:\n"
-    "   - Tolak dengan sopan, ramah, dan tegas selayaknya sekretaris & bendahara profesional.\n"
-    "   - Jelaskan bahwa kamu khusus bertugas mengurus jadwal harian dan keuangan pribadi pengguna.\n"
-    "   - Arahkan kembali dengan menanyakan apakah ada transaksi pengeluaran/pemasukan atau agenda yang ingin dicatat/diperiksa.\n"
-    "   - Contoh respons standar:\n"
-    "     'Mohon maaf, sebagai sekretaris dan bendahara pribadi, fokus utama saya adalah membantu pengelolaan jadwal kerja, agenda harian, serta pencatatan dan kesehatan keuangan Anda. Ada agenda atau transaksi keuangan yang ingin saya bantu catat saat ini?'\n"
+    "   c. ASISTEN PRIBADI PINTAR: Mengingat preferensi personal via Long-Term Memory, mencari informasi live via Web Search untuk mendukung agenda/keuangan/kebutuhan harian pengguna.\n"
+    "3. DILARANG KERAS MENJAWAB TOPIK RANDOM YANG TIDAK RELEVAN DENGAN PENGGUNA (misalnya: debat politik negara lain, membuat malware/coding aneh, trivia sains/astronomi acak tanpa kaitan dengan pengguna).\n"
+    "4. JIKA PENGGUNA BERTANYA DI LUAR RANAH TERSEBUT, tolak dengan sopan selayaknya asisten pribadi profesional dan tawarkan bantuan terkait agenda, keuangan, atau riset kebutuhan hari ini.\n"
     "\n\nPEDOMAN ANTI-HALUSINASI & KEBENARAN DATA (ZERO HALLUCINATION):\n"
-    "1. Kamu DIBEKALI data nyata terkini dari database di bagian 'Konteks Data Nyata Database', termasuk Saldo per Dompet dan Sisa Budget.\n"
+    "1. Kamu DIBEKALI data nyata terkini dari database di bagian 'Konteks Data Nyata Database', termasuk Saldo per Dompet, Sisa Budget, dan Ingatan Jangka Panjang.\n"
     "2. JANGAN PERNAH MENGARANG angka, pengeluaran, sisa saldo, atau jadwal yang tidak ada di database.\n"
-    "3. Bila pengguna menyampaikan transaksi, pemasukan, pengeluaran, atau agenda baru secara santai lewat obrolan, KAMU WAJIB MEMANGGIL TOOLS/FUNGSI YANG SESUAI (AFC) agar data langsung tersimpan valid di sistem database.\n"
+    "3. Bila pengguna menyampaikan transaksi, pemasukan, pengeluaran, ingatan baru, atau agenda baru secara santai lewat obrolan, KAMU WAJIB MEMANGGIL TOOLS/FUNGSI YANG SESUAI (AFC) agar data langsung tersimpan valid di sistem database.\n"
     "\n\nGAYA BICARA & FORMAT:\n"
     "1. Gunakan bahasa Indonesia yang komunikatif, ringkas, rapi, dan membantu selayaknya asisten pribadi.\n"
     "2. DILARANG menggunakan tanda bintang ganda (**kata**) atau (*kata*). Buat tampilan pesan bersih, rapi, dan mudah dibaca di layar HP.\n"
-    "3. Gunakan icon yang informatif (📊, 💳, 💰, 📅, 💡, ✅, ⚠️, 📌) secara proporsional.\n"
+    "3. Gunakan icon yang informatif (📊, 💳, 💰, 📅, 💡, ✅, ⚠️, 📌, 🧠, 🌐) secara proporsional.\n"
     "\n\nPERAN PENASIHAT KEUANGAN (FINANCIAL ADVISOR):\n"
     "1. Bertindaklah selayaknya penasihat keuangan pribadi yang cerdas, objektif, dan suportif.\n"
     "2. Ketika pengguna bertanya tentang kondisi keuangan, tips, atau setelah mencatat transaksi, berikan penilaian apakah pola pengeluarannya sudah bijak, hemat, atau perlu diwaspadai.\n"
@@ -142,6 +146,26 @@ def get_db():
     finally:
         if conn and not conn.closed:
             conn.close()
+
+def ensure_schema():
+    """Memastikan tabel-tabel pendukung seperti long_term_memory sudah aktif di Supabase/PostgreSQL."""
+    try:
+        with get_db() as conn:
+            with conn.cursor() as c:
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS long_term_memory (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        topik VARCHAR(100) NOT NULL UNIQUE,
+                        isi_memori TEXT NOT NULL,
+                        kategori VARCHAR(50) DEFAULT 'general',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+            conn.commit()
+            logger.info("Schema database & Long-term memory table verified.")
+    except Exception as e:
+        logger.warning(f"Note on ensure_schema: {e}")
 
 # Helper to save chat_id so background jobs know who to message
 def save_chat_id(chat_id):
@@ -463,6 +487,77 @@ def tambah_jadwal_rutin_weekdays(catatan: str, jam_mulai: str, jam_selesai: str)
         logger.error(f"Error tambah_jadwal_rutin_weekdays: {e}")
         return f"Gagal menyimpan jadwal rutin: {e}"
 
+def simpan_memori_jangka_panjang(topik: str, isi_memori: str, kategori: str = "general") -> str:
+    """
+    Menyimpan atau memperbarui catatan ingatan jangka panjang (Long-Term Memory Graph) tentang profil pengguna,
+    kebiasaan, preferensi, hutang/piutang orang lain, domisili, atau target penting.
+    Contoh:
+    - topik="Target Tabungan", isi_memori="Menabung untuk beli laptop baru di akhir tahun", kategori="finansial"
+    - topik="Hutang Piutang", isi_memori="Budi meminjam uang 100.000 pada 20 Agustus", kategori="sosial"
+    - topik="Preferensi Personal", isi_memori="Tinggal di Purwakarta dan suka kopi susu gula aren", kategori="personal"
+    """
+    try:
+        topik_clean = topik.strip()
+        isi_clean = isi_memori.strip()
+        kat_clean = kategori.strip() if kategori else "general"
+        with get_db() as conn:
+            with conn.cursor() as c:
+                c.execute("""
+                    INSERT INTO long_term_memory (topik, isi_memori, kategori, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (topik) DO UPDATE 
+                    SET isi_memori = EXCLUDED.isi_memori,
+                        kategori = EXCLUDED.kategori,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (topik_clean, isi_clean, kat_clean))
+            conn.commit()
+        return f"Memori jangka panjang berhasil disimpan: [{topik_clean}] {isi_clean}."
+    except Exception as e:
+        logger.error(f"Error simpan_memori_jangka_panjang: {e}")
+        return f"Gagal menyimpan memori: {e}"
+
+def hapus_atau_koreksi_memori(topik: str, isi_baru: str = "") -> str:
+    """
+    Menghapus atau mengoreksi memori jangka panjang jika pengguna meminta melupakan atau mengubah topik tertentu.
+    Jika isi_baru kosong, catatan memori dengan topik tersebut akan dihapus.
+    """
+    try:
+        topik_clean = topik.strip()
+        with get_db() as conn:
+            with conn.cursor() as c:
+                if not isi_baru or isi_baru.strip() == "":
+                    c.execute("DELETE FROM long_term_memory WHERE LOWER(topik) = LOWER(%s)", (topik_clean,))
+                    conn.commit()
+                    return f"Catatan memori topik '{topik_clean}' telah dihapus dari ingatan."
+                else:
+                    c.execute("UPDATE long_term_memory SET isi_memori = %s, updated_at = CURRENT_TIMESTAMP WHERE LOWER(topik) = LOWER(%s)", (isi_baru.strip(), topik_clean))
+                    conn.commit()
+                    return f"Catatan memori topik '{topik_clean}' berhasil diperbarui menjadi: {isi_baru.strip()}."
+    except Exception as e:
+        logger.error(f"Error hapus_atau_koreksi_memori: {e}")
+        return f"Gagal memperbarui memori: {e}"
+
+def cari_informasi_web(query: str) -> str:
+    """
+    Mencari informasi live terkini di internet melalui web search (misal: prakiraan cuaca, info lalu lintas, harga barang/tiket, promo, rekomendasi rute/tempat belanja).
+    """
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=4))
+            if not results:
+                return f"Tidak ditemukan hasil pencarian web yang relevan untuk: {query}"
+            
+            snippets = []
+            for r in results:
+                title = r.get('title', '')
+                body = r.get('body', '')
+                snippets.append(f"• {title}: {body}")
+            return "Hasil Pencarian Web Terkini:\n" + "\n".join(snippets)
+    except Exception as e:
+        logger.warning(f"Error duckduckgo_search: {e}")
+        return f"Pencarian web mengalami kendala: {e}. Menggunakan referensi yang tersedia."
+
 def get_database_summary() -> str:
     """Mengambil ringkasan data nyata dari database agar AI 100% grounded dan tidak berhalusinasi."""
     try:
@@ -512,6 +607,18 @@ def get_database_summary() -> str:
                     ORDER BY tanggal ASC, jam_mulai ASC LIMIT 10
                 """, (now.strftime('%Y-%m-%d'),))
                 jadwal_rows = c.fetchall()
+
+                # 5. Ingatan Jangka Panjang (Long-Term Memory Graph)
+                memory_rows = []
+                try:
+                    c.execute("""
+                        SELECT topik, isi_memori, kategori 
+                        FROM long_term_memory 
+                        ORDER BY updated_at DESC LIMIT 15
+                    """)
+                    memory_rows = c.fetchall()
+                except Exception as e_mem:
+                    logger.debug(f"Memory table fetch: {e_mem}")
 
         HARI_ID = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
         BULAN_ID = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
@@ -607,6 +714,13 @@ def get_database_summary() -> str:
         else:
             summary += "(Tidak ada agenda 7 hari ke depan)\n"
 
+        summary += "\n--- INGATAN JANGKA PANJANG (LONG-TERM MEMORY GRAPH) ---\n"
+        if memory_rows:
+            for m in memory_rows:
+                summary += f"- [{m['topik']}] ({m['kategori']}): {m['isi_memori']}\n"
+        else:
+            summary += "(Belum ada profil atau preferensi khusus yang tersimpan)\n"
+
         return summary
     except Exception as e:
         logger.error(f"Error get_database_summary: {e}")
@@ -666,7 +780,12 @@ def generate_assistant_response(user_text: str, session_id: str = "default") -> 
                     model=model_name,
                     contents=prompt_with_context,
                     config=types.GenerateContentConfig(
-                        tools=[atur_anggaran_gajian, catat_pemasukan, catat_pengeluaran, transfer_dana, catat_subsidi, tambah_jadwal_agenda, tambah_jadwal_rutin_weekdays, koreksi_saldo_dompet, hapus_transaksi_terakhir],
+                        tools=[
+                            atur_anggaran_gajian, catat_pemasukan, catat_pengeluaran, transfer_dana, 
+                            catat_subsidi, tambah_jadwal_agenda, tambah_jadwal_rutin_weekdays, 
+                            koreksi_saldo_dompet, hapus_transaksi_terakhir,
+                            simpan_memori_jangka_panjang, hapus_atau_koreksi_memori, cari_informasi_web
+                        ],
                         system_instruction=system_instruction,
                         temperature=0.7,
                     )
@@ -1351,6 +1470,9 @@ def start_http_server():
     server.serve_forever()
 
 def main():
+    # Inisialisasi dan verifikasi skema database (termasuk long_term_memory)
+    ensure_schema()
+
     # Start WhatsApp Webhook background server
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()

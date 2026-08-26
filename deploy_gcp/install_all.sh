@@ -78,7 +78,7 @@ echo "🐍 Menginstall library Python..."
 cd "$APP_DIR/telegram_bot"
 python3 -m venv venv
 ./venv/bin/pip install --upgrade pip
-./venv/bin/pip install google-genai psycopg2-binary python-dotenv python-telegram-bot[job-queue] APScheduler holidays requests
+./venv/bin/pip install google-genai psycopg2-binary python-dotenv "python-telegram-bot[job-queue]" APScheduler holidays requests matplotlib
 
 # 5. Setup Node.js WhatsApp Gateway
 echo "📱 Menginstall library WhatsApp Gateway..."

@@ -543,6 +543,22 @@ def get_database_summary() -> str:
         summary += "\n--- BUDGET BULAN INI ---\n"
         total_limit = 0
         total_terpakai = 0
+        sisa_budget_pengeluaran = 0
+        
+        tanggal_gajian = 25
+        if now.day >= tanggal_gajian:
+            # Gajian bulan depan
+            next_month = now.month + 1 if now.month < 12 else 1
+            next_year = now.year if now.month < 12 else now.year + 1
+            next_payday = datetime.date(next_year, next_month, tanggal_gajian)
+        else:
+            # Gajian bulan ini
+            next_payday = datetime.date(now.year, now.month, tanggal_gajian)
+            
+        sisa_hari = (next_payday - now.date()).days
+        if sisa_hari == 0:
+            sisa_hari = 1 # Hindari pembagian dengan nol saat hari H gajian
+        
         if budget_rows:
             for r in budget_rows:
                 limit = int(r['limit_nominal'])
@@ -550,8 +566,16 @@ def get_database_summary() -> str:
                 sisa = limit - terpakai
                 total_limit += limit
                 total_terpakai += terpakai
+                
+                if r['nama'].lower() != 'tabungan':
+                    sisa_budget_pengeluaran += sisa
+                    
                 summary += f"- {r['nama']}: Sisa Rp {sisa:,} (Limit Rp {limit:,})\n"
+            
             summary += f"Total Sisa Budget: Rp {(total_limit - total_terpakai):,}\n"
+            summary += f"Sisa Hari Menuju Gajian (Tgl 25): {sisa_hari} hari\n"
+            if sisa_hari > 0 and sisa_budget_pengeluaran > 0:
+                summary += f"Rekomendasi Batas Pengeluaran Harian (di luar Tabungan): Rp {int(sisa_budget_pengeluaran / sisa_hari):,}\n"
         else:
             summary += "(Belum ada budget bulan ini)\n"
 

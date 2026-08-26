@@ -38,8 +38,11 @@ fi
 echo "🐍 Menyiapkan Python Virtual Environment..."
 cd "$APP_DIR/telegram_bot"
 python3 -m venv venv
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install google-genai psycopg2-binary python-dotenv "python-telegram-bot[job-queue]" APScheduler holidays requests
+if [ -f "requirements.txt" ]; then
+    ./venv/bin/pip install -r requirements.txt
+else
+    ./venv/bin/pip install google-genai psycopg2-binary python-dotenv "python-telegram-bot[job-queue]" APScheduler holidays requests matplotlib
+fi
 
 # 6. Setup WhatsApp Gateway (Node.js)
 echo "📱 Menyiapkan dependensi WhatsApp Gateway..."

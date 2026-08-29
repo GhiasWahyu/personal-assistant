@@ -1475,16 +1475,19 @@ async def rekap(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with get_db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
                 c.execute("""
-                    SELECT k.nama, b.limit_nominal,
-                           COALESCE(SUM(t.jumlah), 0) as terpakai
+                    SELECT k.nama, k.jenis_budget, b.limit_nominal,
+                           COALESCE((
+                               SELECT SUM(t.jumlah)
+                               FROM transaksi t
+                               JOIN kategori k2 ON t.kategori_id = k2.id
+                               WHERE k2.jenis_budget = k.jenis_budget
+                                 AND t.tipe = 'pengeluaran'
+                                 AND EXTRACT(MONTH FROM t.tanggal) = b.bulan
+                                 AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
+                           ), 0) as terpakai
                     FROM budget b 
                     JOIN kategori k ON b.kategori_id = k.id 
-                    LEFT JOIN transaksi t ON t.kategori_id = k.id 
-                          AND EXTRACT(MONTH FROM t.tanggal) = b.bulan 
-                          AND EXTRACT(YEAR FROM t.tanggal) = b.tahun
-                          AND t.tipe = 'pengeluaran'
-                    WHERE b.bulan = %s AND b.tahun = %s
-                    GROUP BY k.nama, b.limit_nominal
+                    WHERE b.bulan = %s AND b.tahun = %s;
                 """, (now.month, now.year))
                 rows = c.fetchall()
         

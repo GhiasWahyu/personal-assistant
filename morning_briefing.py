@@ -46,10 +46,20 @@ def sanitize_db_url(raw_url: str) -> str:
     return raw_url
 
 # Configuration
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "REDACTED_TELEGRAM_TOKEN")
-DB_URL = sanitize_db_url(os.getenv("DATABASE_URL", "postgresql://REDACTED_DB_USER:REDACTED_DB_PASSWORD@REDACTED_DB_HOST/postgres"))
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "REDACTED_GEMINI_API_KEY")
-DEFAULT_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "REDACTED_CHAT_ID")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN belum di-set di environment variable")
+
+_raw_db_url = os.getenv("DATABASE_URL")
+if not _raw_db_url:
+    raise RuntimeError("DATABASE_URL belum di-set di environment variable")
+DB_URL = sanitize_db_url(_raw_db_url)
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY belum di-set di environment variable")
+
+DEFAULT_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def get_target_chat_id():
     """Mendapatkan chat_id tujuan dari file config.json atau fallback env."""

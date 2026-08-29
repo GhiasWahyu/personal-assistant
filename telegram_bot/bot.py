@@ -39,11 +39,22 @@ def sanitize_db_url(raw_url: str) -> str:
             return f"{prefix}://{user}:{pwd_encoded}@{host_db}"
     return raw_url
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "REDACTED_TELEGRAM_TOKEN")
-DB_URL = sanitize_db_url(os.getenv("DATABASE_URL", "postgresql://REDACTED_DB_USER:REDACTED_DB_PASSWORD@REDACTED_DB_HOST/postgres"))
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN belum di-set di environment variable")
+
+_raw_db_url = os.getenv("DATABASE_URL")
+if not _raw_db_url:
+    raise RuntimeError("DATABASE_URL belum di-set di environment variable")
+DB_URL = sanitize_db_url(_raw_db_url)
+
 CONFIG_FILE = "config.json"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "REDACTED_GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY belum di-set di environment variable")
+
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 # In-memory history buffer per chat_id to keep conversation flowing naturally (Anti-amnesia / Contextual)
 chat_histories = {}

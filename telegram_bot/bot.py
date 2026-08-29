@@ -104,6 +104,10 @@ system_instruction = (
     "2. Bila pengguna menyampaikan fakta atau preferensi personal penting tentang dirinya (contoh: 'saya lagi nabung beli laptop', 'budi pinjam uang 100rb', 'saya sekarang diet gula', 'ingat ya saya alergi udang', 'saya tinggal di Purwakarta'), PANGGIL TOOL `simpan_memori_jangka_panjang`.\n"
     "3. Bila pengguna meminta melupakan atau meralat catatan memori tertentu, PANGGIL TOOL `hapus_atau_koreksi_memori`.\n"
     "4. Gunakan konteks memori ini di setiap percakapan agar asisten terasa sangat mengenal pengguna secara mendalam dan konsisten.\n"
+    "\n\nPENCARIAN RIWAYAT PENGELUARAN PERIODE / TANGGAL (READ-ONLY):\n"
+    "1. Bila pengguna bertanya tentang total atau riwayat pengeluaran dalam rentang waktu tertentu dalam bahasa natural (contoh: 'pengeluaran 3 hari ini', 'berapa habis minggu ini', 'pengeluaran kemarin', 'rekap pengeluaran bulan lalu', 'pengeluaran tanggal 15'), PANGGIL TOOL `cari_pengeluaran_periode`.\n"
+    "2. Terjemahkan rentang waktu tersebut ke format tanggal YYYY-MM-DD yang presisi (kamu tahu tanggal hari ini dari 'Konteks Data Nyata Database').\n"
+    "3. Tool ini bersifat read-only untuk melihat data tanpa mengubah database.\n"
     "\n\nPENCARIAN WEB & LIVE INFO AGENT:\n"
     "1. Kamu dapat mencari informasi live dan terkini di internet (misal: prakiraan cuaca hari ini, info lalu lintas, harga tiket/barang, promo, rekomendasi tempat makan/belanja sesuai budget) dengan memanggil tool `cari_informasi_web`.\n"
     "2. Gunakan hasil pencarian web terkini untuk memberikan jawaban dan rekomendasi yang akurat, faktual, dan kontekstual.\n"
@@ -595,6 +599,79 @@ def cari_informasi_web(query: str) -> str:
         logger.warning(f"Error duckduckgo_search: {e}")
         return f"Pencarian web mengalami kendala: {e}. Menggunakan referensi yang tersedia."
 
+def cari_pengeluaran_periode(tanggal_mulai: str, tanggal_selesai: str) -> str:
+    """
+    Mencari dan merangkum seluruh catatan pengeluaran dalam rentang tanggal tertentu (format: YYYY-MM-DD).
+    Digunakan ketika pengguna menanyakan riwayat/total pengeluaran beberapa hari terakhir, minggu ini, bulan lalu, atau periode tanggal tertentu.
+    Tool ini bersifat read-only (hanya SELECT query).
+    """
+    try:
+        tgl_awal = datetime.datetime.strptime(tanggal_mulai.strip(), '%Y-%m-%d').date()
+        tgl_akhir = datetime.datetime.strptime(tanggal_selesai.strip(), '%Y-%m-%d').date()
+        if tgl_awal > tgl_akhir:
+            tgl_awal, tgl_akhir = tgl_akhir, tgl_awal
+            
+        tgl_awal_str = tgl_awal.strftime('%Y-%m-%d')
+        tgl_akhir_str = tgl_akhir.strftime('%Y-%m-%d')
+        total_hari = (tgl_akhir - tgl_awal).days + 1
+        
+        with get_db() as conn:
+            import psycopg2.extras
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                # 1. Total pengeluaran per kategori (urut terbesar)
+                c.execute("""
+                    SELECT 
+                        k.nama as kategori_nama,
+                        k.jenis_budget,
+                        COALESCE(SUM(t.jumlah), 0) as total_nominal,
+                        COUNT(t.id) as jumlah_transaksi
+                    FROM transaksi t
+                    JOIN kategori k ON t.kategori_id = k.id
+                    WHERE t.tipe = 'pengeluaran'
+                      AND t.tanggal BETWEEN %s AND %s
+                    GROUP BY k.nama, k.jenis_budget
+                    ORDER BY total_nominal DESC;
+                """, (tgl_awal_str, tgl_akhir_str))
+                kat_rows = c.fetchall()
+                
+                # 2. Daftar transaksi detail di periode tersebut (maks 20 transaksi terbaru)
+                c.execute("""
+                    SELECT t.tanggal, t.jumlah, t.deskripsi, COALESCE(t.dompet, 'Cash') as dompet, k.nama as kategori_nama
+                    FROM transaksi t
+                    JOIN kategori k ON t.kategori_id = k.id
+                    WHERE t.tipe = 'pengeluaran'
+                      AND t.tanggal BETWEEN %s AND %s
+                    ORDER BY t.tanggal DESC, t.created_at DESC
+                    LIMIT 20;
+                """, (tgl_awal_str, tgl_akhir_str))
+                tx_rows = c.fetchall()
+                
+        if not kat_rows:
+            return f"Tidak ada catatan pengeluaran pada rentang {tgl_awal_str} s/d {tgl_akhir_str} ({total_hari} hari)."
+            
+        total_pengeluaran = sum(int(r['total_nominal']) for r in kat_rows)
+        rata_per_hari = int(total_pengeluaran / total_hari) if total_hari > 0 else total_pengeluaran
+        
+        res = [
+            f"=== RINGKASAN PENGELUARAN PERIODE ({tgl_awal_str} s/d {tgl_akhir_str} • {total_hari} hari) ===",
+            f"💰 Total Pengeluaran: Rp {total_pengeluaran:,}",
+            f"📊 Rata-rata Harian: Rp {rata_per_hari:,}/hari",
+            "\n📂 Rincian Per Kategori (Urut Terbesar):"
+        ]
+        
+        for k in kat_rows:
+            res.append(f"- {k['kategori_nama']} [{k['jenis_budget']}]: Rp {int(k['total_nominal']):,} ({k['jumlah_transaksi']} transaksi)")
+            
+        if tx_rows:
+            res.append("\n📝 Daftar Transaksi di Periode Ini:")
+            for t in tx_rows:
+                res.append(f"- [{t['tanggal']}] Rp {int(t['jumlah']):,} ({t['kategori_nama']} - {t['dompet']}): {t['deskripsi']}")
+                
+        return "\n".join(res)
+    except Exception as e:
+        logger.error(f"Error cari_pengeluaran_periode: {e}")
+        return f"Gagal mengambil riwayat pengeluaran periode: {e}"
+
 def get_database_summary() -> str:
     """Mengambil ringkasan data nyata dari database agar AI 100% grounded dan tidak berhalusinasi."""
     try:
@@ -825,7 +902,8 @@ def generate_assistant_response(user_text: str, session_id: str = "default", med
                             atur_anggaran_gajian, catat_pemasukan, catat_pengeluaran, transfer_dana, 
                             catat_subsidi, tambah_jadwal_agenda, tambah_jadwal_rutin_weekdays, 
                             koreksi_saldo_dompet, hapus_transaksi_terakhir,
-                            simpan_memori_jangka_panjang, hapus_atau_koreksi_memori, cari_informasi_web
+                            simpan_memori_jangka_panjang, hapus_atau_koreksi_memori, cari_informasi_web,
+                            cari_pengeluaran_periode
                         ],
                         system_instruction=system_instruction,
                         temperature=0.7,

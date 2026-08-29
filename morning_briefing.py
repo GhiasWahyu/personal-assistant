@@ -271,13 +271,12 @@ ATURAN WAJIB:
 - Bahasa Indonesia yang natural, sopan, dan efisien.
 """
 
-    MODELS = [
+    MODELS = list(dict.fromkeys([
         os.getenv("GEMINI_MODEL", "gemini-3.7-flash"),
-        "gemini-3.7-flash",
+        "gemini-2.5-flash",
         "gemini-3.5-flash",
-        "gemini-3.6-flash",
         "gemini-flash-latest"
-    ]
+    ]))
 
     for m in MODELS:
         try:

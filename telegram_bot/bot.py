@@ -18,6 +18,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Load environment variables if available
 load_dotenv()
+_parent_env = os.path.join(os.path.dirname(__file__), "..", ".env")
+if os.path.exists(_parent_env):
+    load_dotenv(_parent_env)
 
 # Setup Logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -202,13 +205,21 @@ def save_chat_id(chat_id):
         logger.error(f"Failed to save chat_id: {e}")
 
 def get_chat_id():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                return json.load(f).get("chat_id")
-        except Exception as e:
-            logger.error(f"Failed to read chat_id: {e}")
-    return None
+    config_paths = [
+        CONFIG_FILE,
+        os.path.join(os.path.dirname(__file__), CONFIG_FILE),
+        os.path.join(os.path.dirname(__file__), "..", CONFIG_FILE)
+    ]
+    for cp in config_paths:
+        if os.path.exists(cp):
+            try:
+                with open(cp, 'r') as f:
+                    data = json.load(f)
+                    if data and data.get("chat_id"):
+                        return data.get("chat_id")
+            except Exception as e:
+                logger.debug(f"Failed to read chat_id from {cp}: {e}")
+    return os.getenv("TELEGRAM_CHAT_ID")
 
 def get_main_keyboard():
     """Menu tombol cepat interaktif agar ramah pengguna dan tidak perlu hafal command."""
@@ -795,13 +806,12 @@ def generate_assistant_response(user_text: str, session_id: str = "default", med
             contents.extend(media_parts)
         contents.append(prompt_with_context)
 
-        MODELS_TO_TRY = [
+        MODELS_TO_TRY = list(dict.fromkeys([
             GEMINI_MODEL,
-            "gemini-3.7-flash",
+            "gemini-2.5-flash",
             "gemini-3.5-flash",
-            "gemini-3.6-flash",
             "gemini-flash-latest"
-        ]
+        ]))
 
         response = None
         last_err = None

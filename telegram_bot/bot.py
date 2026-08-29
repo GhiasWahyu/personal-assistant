@@ -54,7 +54,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise RuntimeError("GEMINI_API_KEY belum di-set di environment variable")
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
 
 # In-memory history buffer per chat_id to keep conversation flowing naturally (Anti-amnesia / Contextual)
 chat_histories = {}
@@ -796,10 +796,10 @@ def generate_assistant_response(user_text: str, session_id: str = "default", med
         contents.append(prompt_with_context)
 
         MODELS_TO_TRY = [
-            os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
-            "gemini-3.5-flash",
+            GEMINI_MODEL,
             "gemini-3.7-flash",
-            "gemini-3.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
             "gemini-flash-latest"
         ]
 

@@ -16,7 +16,14 @@ prompt.json
 run_eval.py
 eval_results.json
 
-# IDE and temporary files
+# Configuration & Secrets
+telegram_bot/config.json
+whatsapp_bot/config_wa.json
+config.json
+config_wa.json
+
+# IDE, Archives, and temporary files
 .agents/
 .system_generated/
 *.log
+*.zip

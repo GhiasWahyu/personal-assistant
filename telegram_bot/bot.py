@@ -6,6 +6,7 @@ import io
 import datetime
 import logging
 import threading
+import asyncio
 import urllib.request
 import holidays
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -57,7 +58,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise RuntimeError("GEMINI_API_KEY belum di-set di environment variable")
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 # In-memory history buffer per chat_id to keep conversation flowing naturally (Anti-amnesia / Contextual)
 chat_histories = {}
@@ -77,7 +78,8 @@ system_instruction = (
     "\n\nPEDOMAN PENGELOLAAN DOMPET & SUMBER DANA (MULTI-WALLET / MULTI-ACCOUNT):\n"
     "1. Pengguna dapat menyimpan uang di beberapa sumber dana berbeda (misal: Cash/Tunai, Bank A, Bank BCA, Bank Mandiri, Bank BRI, DANA, GoPay, OVO, ShopeePay, dll).\n"
     "2. Bila pengguna menginput gajian atau pemasukan terpisah di beberapa dompet/rekening (contoh: 'gajian cash 50.000 lalu di bank a ada 10000'):\n"
-    "   - Hitung total keseluruhan nominal (contoh: 50.000 + 10.000 = 60.000) dan panggil `atur_anggaran_gajian(total_nominal=60000)` agar formula budget 50/30/20 terisi dengan angka bulat ke ribuan rupiah terdekat (clean round number) tanpa pecahan ratusan rupiah.\n"
+    "   - Hitung total keseluruhan nominal (contoh: 50.000 + 10.000 = 60.000) dan panggil `atur_anggaran_gajian(total_nominal=60000, nominal_tabungan=200000)` agar anggaran tersusun dengan metode Pay Yourself First: Tabungan Rp 200.000 disisihkan dulu, sisa dibagi 65% Kebutuhan / 35% Keinginan.\n"
+    "   - Jika pengguna menyebutkan nominal tabungan berbeda (contoh: 'saya mau sisihkan 300.000 untuk tabungan'), gunakan nominal tersebut sebagai parameter `nominal_tabungan`.\n"
     "   - Panggil `catat_pemasukan` untuk masing-masing dompet (contoh: nominal=50000, dompet='Cash', keterangan='Gaji Cash' dan nominal=10000, dompet='Bank A', keterangan='Gaji Bank A').\n"
     "3. Bila pengguna mencatat pemasukan biasa (misal: 'dapat transfer 100.000 di DANA' atau 'dapat uang saku 50.000 cash'), panggil `catat_pemasukan` dengan nama dompet yang sesuai.\n"
     "4. Bila pengguna mencatat pengeluaran dan menyebutkan sumber dana (misal: 'beli makan 25.000 pakai Cash' atau 'bayar listrik 50.000 lewat Bank A'), masukkan nama dompet ke parameter `dompet` di `catat_pengeluaran`.\n"
@@ -98,7 +100,8 @@ system_instruction = (
     "     * 'Hiburan & Rekreasi' (nonton, bioskop, game, netflix, liburan, jalan-jalan)\n"
     "     * 'Kesehatan & Medis' (obat, apotek, dokter, vitamin)\n"
     "     * 'Sosial & Donasi' (infaq, sedekah, kado, kondangan, keluarga)\n"
-    "   - Dan tetap tentukan `tipe` ('kebutuhan' atau 'keinginan') agar alokasi budget 50/30/20 tetap akurat!\n"
+    "     * 'Pengeluaran Tidak Tercatat' (biaya yang tidak diingat sumbernya, uang hilang, selisih saldo, biaya tak terduga yang tidak jelas kategorinya — gunakan ini jika pengguna mengatakan 'ada pengeluaran yang tidak tercatat', 'saldo berkurang tidak jelas', 'ada selisih', atau 'lupa belinya apa')\n"
+    "   - Dan tetap tentukan `tipe` ('kebutuhan' atau 'keinginan') agar alokasi budget Pay Yourself First tetap akurat!\n"
     "\n\nINGATAN JANGKA PANJANG (LONG-TERM MEMORY GRAPH):\n"
     "1. Kamu memiliki kemampuan ingatan jangka panjang permanen untuk mengingat profil, preferensi, kebiasaan, hutang/piutang, dan target finansial pengguna.\n"
     "2. Bila pengguna menyampaikan fakta atau preferensi personal penting tentang dirinya (contoh: 'saya lagi nabung beli laptop', 'budi pinjam uang 100rb', 'saya sekarang diet gula', 'ingat ya saya alergi udang', 'saya tinggal di Purwakarta'), PANGGIL TOOL `simpan_memori_jangka_panjang`.\n"
@@ -137,6 +140,15 @@ system_instruction = (
     "1. Gunakan bahasa Indonesia yang komunikatif, suportif, intelektual namun santai, ringkas, dan rapi selayaknya asisten pribadi handal.\n"
     "2. DILARANG menggunakan tanda bintang ganda (**kata**) atau (*kata*). Buat tampilan pesan bersih, rapi, dan mudah dibaca di layar HP.\n"
     "3. Gunakan icon yang informatif (📊, 💳, 💰, 📅, 💡, 🎓, 📚, 🧠, 🌐, ✅, ⚠️, 📌) secara proporsional.\n"
+    "\n\nPROFIL KEUANGAN PENGGUNA (PENTING — PAHAMI INI):\n"
+    "Pengguna (Mas Ghias) mengelola keuangannya dengan metode PAY YOURSELF FIRST:\n"
+    "1. Setiap gajian/pemasukan, PERTAMA langsung sisihkan Rp 200.000 untuk Tabungan (nominal ini tetap, tidak dihitung dari persentase).\n"
+    "2. Sisa uang setelah tabungan baru dibagi: 65% untuk Kebutuhan Pokok & 35% untuk Keinginan & Hiburan.\n"
+    "3. Contoh: Total Saldo Rp 734.000 → Tabungan Rp 200.000 (Sisa Rp 200.000) → Sisa Operasional Rp 534.000 → Jatah Sisa Kebutuhan Rp 347.000 (65%) & Jatah Sisa Keinginan Rp 187.000 (35%).\n"
+    "4. ATURAN HITUNGAN SIMULASI HARIAN (KRUSIAL - JANGAN SALAH!):\n"
+    "   - Dana operasional yang bisa dibelanjakan adalah SISA DANA OPERASIONAL RIIL (misal Rp 534.000), BUKAN total limit kotor.\n"
+    "   - Batas harian rata-rata = Sisa Dana Operasional / Sisa Hari s/d Gajian (contoh: Rp 534.000 / 26 hari = Rp 20.538 per hari).\n"
+    "   - JANGAN PERNAH membagi total limit kotor atau dana yang sudah terpakai dengan sisa hari!\n"
     "\n\nPERAN PENASIHAT KEUANGAN (FINANCIAL ADVISOR):\n"
     "1. Bertindaklah selayaknya penasihat keuangan pribadi yang cerdas, objektif, dan suportif.\n"
     "2. Ketika pengguna bertanya tentang kondisi keuangan, tips, atau setelah mencatat transaksi, berikan penilaian apakah pola pengeluarannya sudah bijak, hemat, atau perlu diwaspadai.\n"
@@ -251,34 +263,37 @@ def get_kategori_id(conn, nama: str, tipe: str, jenis_budget: str) -> str:
             conn.commit()
             return cat_id
 
-def hitung_pembagian_anggaran_bulat(total_nominal: int):
+def hitung_pembagian_anggaran_bulat(total_nominal: int, nominal_tabungan: int = 200000):
     """
-    Membagi anggaran 50/30/20 dengan pembulatan rapi sebisa mungkin ke ribuan rupiah terdekat,
-    namun MENJAMIN jumlah total (kebutuhan + keinginan + tabungan) SAMA PERSIS dengan total_nominal
-    (100% presisi matematis: tidak menambah atau mengurangi nominal 1 rupiah pun).
+    Membagi anggaran dengan metode PAY YOURSELF FIRST:
+    1. Tabungan disisihkan PERTAMA dengan nominal tetap (default Rp 200.000)
+    2. Sisa uang dibagi: 65% Kebutuhan Pokok, 35% Keinginan & Hiburan
+    Dibulatkan ke ribuan rupiah terdekat, total DIJAMIN sama persis dengan total_nominal.
     """
     total_nominal = int(total_nominal)
-    if total_nominal >= 10000:
-        kebutuhan = round((total_nominal * 0.5) / 1000) * 1000
-        keinginan = round((total_nominal * 0.3) / 1000) * 1000
-        # Tabungan otomatis menampung sisa persisnya agar total akumulasi tepat 100% sama dengan total_nominal
-        tabungan = total_nominal - kebutuhan - keinginan
-        if tabungan < 0:
-            kebutuhan = int(total_nominal * 0.5)
-            keinginan = int(total_nominal * 0.3)
-            tabungan = total_nominal - kebutuhan - keinginan
+    nominal_tabungan = int(nominal_tabungan)
+    # Pastikan tabungan tidak melebihi total
+    tabungan = min(nominal_tabungan, total_nominal)
+    sisa = total_nominal - tabungan
+    if sisa >= 10000:
+        kebutuhan = round((sisa * 0.65) / 1000) * 1000
+        keinginan = sisa - kebutuhan  # Sisa presisi 100%
+        if keinginan < 0:
+            kebutuhan = int(sisa * 0.65)
+            keinginan = sisa - kebutuhan
     else:
-        kebutuhan = int(total_nominal * 0.5)
-        keinginan = int(total_nominal * 0.3)
-        tabungan = total_nominal - kebutuhan - keinginan
+        kebutuhan = int(sisa * 0.65)
+        keinginan = sisa - kebutuhan
     return kebutuhan, keinginan, tabungan
 
 # --- DATABASE TOOLS FOR GEMINI FUNCTION CALLING ---
-def atur_anggaran_gajian(total_nominal: int) -> str:
-    """Mengatur alokasi anggaran bulanan dengan formula 50% Kebutuhan Pokok, 30% Keinginan & Hiburan, 20% Tabungan (dibulatkan ke ribuan rupiah terdekat)."""
+def atur_anggaran_gajian(total_nominal: int, nominal_tabungan: int = 200000) -> str:
+    """Mengatur alokasi anggaran bulanan dengan metode Pay Yourself First: tabungan disisihkan dulu (default Rp 200.000), sisanya dibagi 65% Kebutuhan Pokok & 35% Keinginan & Hiburan. Otomatis menjamin SISA budget presisi sama dengan alokasi yang diinginkan."""
+    import psycopg2.extras
     try:
         total_nominal = int(total_nominal)
-        kebutuhan, keinginan, tabungan = hitung_pembagian_anggaran_bulat(total_nominal)
+        nominal_tabungan = int(nominal_tabungan)
+        sisa_kebutuhan, sisa_keinginan, sisa_tabungan = hitung_pembagian_anggaran_bulat(total_nominal, nominal_tabungan)
         now = datetime.datetime.now()
         bulan = now.month
         tahun = now.year
@@ -288,20 +303,46 @@ def atur_anggaran_gajian(total_nominal: int) -> str:
             kat_keinginan_id = get_kategori_id(conn, "Keinginan & Hiburan", "pengeluaran", "keinginan")
             kat_tabungan_id = get_kategori_id(conn, "Tabungan", "pengeluaran", "tabungan")
 
-            with conn.cursor() as c:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as c:
+                # Cek pengeluaran yang sudah terjadi bulan ini agar sisa budget pas 100%
+                c.execute("""
+                    SELECT k.jenis_budget, COALESCE(SUM(t.jumlah), 0) as terpakai
+                    FROM transaksi t
+                    JOIN kategori k ON t.kategori_id = k.id
+                    WHERE t.tipe = 'pengeluaran'
+                      AND EXTRACT(MONTH FROM t.tanggal) = %s
+                      AND EXTRACT(YEAR FROM t.tanggal) = %s
+                    GROUP BY k.jenis_budget
+                """, (bulan, tahun))
+                rows = c.fetchall()
+                terpakai_map = {row['jenis_budget']: int(row['terpakai']) for row in rows}
+
+                terpakai_kebutuhan = terpakai_map.get('kebutuhan', 0)
+                terpakai_keinginan = terpakai_map.get('keinginan', 0)
+                terpakai_tabungan = terpakai_map.get('tabungan', 0)
+
+                limit_kebutuhan = sisa_kebutuhan + terpakai_kebutuhan
+                limit_keinginan = sisa_keinginan + terpakai_keinginan
+                limit_tabungan = sisa_tabungan + terpakai_tabungan
+
                 c.execute("DELETE FROM budget WHERE kategori_id = %s AND bulan = %s AND tahun = %s", (kat_kebutuhan_id, bulan, tahun))
                 c.execute("INSERT INTO budget (id, kategori_id, limit_nominal, bulan, tahun) VALUES (%s, %s, %s, %s, %s)", 
-                          (str(uuid.uuid4()), kat_kebutuhan_id, kebutuhan, bulan, tahun))
+                          (str(uuid.uuid4()), kat_kebutuhan_id, limit_kebutuhan, bulan, tahun))
                 
                 c.execute("DELETE FROM budget WHERE kategori_id = %s AND bulan = %s AND tahun = %s", (kat_keinginan_id, bulan, tahun))
                 c.execute("INSERT INTO budget (id, kategori_id, limit_nominal, bulan, tahun) VALUES (%s, %s, %s, %s, %s)", 
-                          (str(uuid.uuid4()), kat_keinginan_id, keinginan, bulan, tahun))
+                          (str(uuid.uuid4()), kat_keinginan_id, limit_keinginan, bulan, tahun))
                 
                 c.execute("DELETE FROM budget WHERE kategori_id = %s AND bulan = %s AND tahun = %s", (kat_tabungan_id, bulan, tahun))
                 c.execute("INSERT INTO budget (id, kategori_id, limit_nominal, bulan, tahun) VALUES (%s, %s, %s, %s, %s)", 
-                          (str(uuid.uuid4()), kat_tabungan_id, tabungan, bulan, tahun))
+                          (str(uuid.uuid4()), kat_tabungan_id, limit_tabungan, bulan, tahun))
             conn.commit()
-        return f"Berhasil mengatur anggaran gaji Rp {total_nominal:,} (Kebutuhan: Rp {kebutuhan:,}, Keinginan: Rp {keinginan:,}, Tabungan: Rp {tabungan:,})."
+        return (
+            f"Berhasil mengatur alokasi anggaran Rp {total_nominal:,}:\n"
+            f"- Sisa Kebutuhan Pokok: Rp {sisa_kebutuhan:,}\n"
+            f"- Sisa Keinginan & Hiburan: Rp {sisa_keinginan:,}\n"
+            f"- Pos Tabungan: Rp {sisa_tabungan:,}"
+        )
     except Exception as e:
         logger.error(f"Error atur_anggaran_gajian: {e}")
         return f"Gagal mengatur anggaran: {e}"
@@ -885,9 +926,12 @@ def generate_assistant_response(user_text: str, session_id: str = "default", med
 
         MODELS_TO_TRY = list(dict.fromkeys([
             GEMINI_MODEL,
-            "gemini-2.5-flash",
+            "gemini-3.6-flash",
             "gemini-3.5-flash",
-            "gemini-flash-latest"
+            "gemini-3.5-flash-lite",
+            "gemini-3.7-flash",
+            "gemini-flash-latest",
+            "gemini-flash-lite-latest",
         ]))
 
         response = None
@@ -958,7 +1002,9 @@ async def handle_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif user_text == "💡 Tips Hemat & Finansial":
         user_text = "Berikan tips pengelolaan keuangan pribadi atau pengingat hemat yang relevan dan praktis untuk hari ini."
 
-    reply = generate_assistant_response(user_text, session_id=chat_id)
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    loop = asyncio.get_running_loop()
+    reply = await loop.run_in_executor(None, generate_assistant_response, user_text, chat_id)
     await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -976,8 +1022,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "BACA total nominal, nama toko/merchant, tanggal, serta rinciannya, lalu LANGSUNG CATAT ke sistem database (panggil tool catat_pengeluaran / transfer_dana / catat_pemasukan)!"
         )
 
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         media_part = types.Part.from_bytes(data=bytes(file_bytes), mime_type="image/jpeg")
-        reply = generate_assistant_response(caption, session_id=chat_id, media_parts=[media_part])
+        loop = asyncio.get_running_loop()
+        reply = await loop.run_in_executor(None, generate_assistant_response, caption, chat_id, [media_part])
         await update.message.reply_text(reply, reply_markup=get_main_keyboard())
     except Exception as e:
         logger.error(f"Error handle_photo: {e}")
@@ -1002,8 +1050,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "lalu jalankan fungsi pencatatan yang sesuai ke database atau jawab secara lengkap."
         )
 
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         media_part = types.Part.from_bytes(data=bytes(file_bytes), mime_type=mime_type)
-        reply = generate_assistant_response(prompt, session_id=chat_id, media_parts=[media_part])
+        loop = asyncio.get_running_loop()
+        reply = await loop.run_in_executor(None, generate_assistant_response, prompt, chat_id, [media_part])
         await update.message.reply_text(reply, reply_markup=get_main_keyboard())
     except Exception as e:
         logger.error(f"Error handle_voice: {e}")
@@ -1700,6 +1750,10 @@ def main():
 
     while True:
         try:
+            # Set fresh event loop for current thread (required in Python 3.12 / 3.14)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
             app = Application.builder().token(TOKEN).build()
 
             app.add_handler(CommandHandler("start", start))

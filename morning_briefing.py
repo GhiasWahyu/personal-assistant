@@ -272,10 +272,13 @@ ATURAN WAJIB:
 """
 
     MODELS = list(dict.fromkeys([
-        os.getenv("GEMINI_MODEL", "gemini-3.7-flash"),
-        "gemini-2.5-flash",
+        os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
+        "gemini-3.6-flash",
         "gemini-3.5-flash",
-        "gemini-flash-latest"
+        "gemini-3.5-flash-lite",
+        "gemini-3.7-flash",
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
     ]))
 
     for m in MODELS:

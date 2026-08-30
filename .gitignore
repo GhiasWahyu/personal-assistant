@@ -27,3 +27,4 @@ config_wa.json
 .system_generated/
 *.log
 *.zip
+DASHBOARD_PLAN.md
